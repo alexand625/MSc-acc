@@ -1,0 +1,2658 @@
+var docBody = $(document.body) ? $(document.body) : $(parent.document.getElementsByTagName('iframe')[0].contentDocument);
+
+if(typeof(CO) == "undefined")
+  var CO = Class.create();
+
+$CO = function(pE)
+{
+  pE = $(pE)
+
+  try { if(!pE.co) pE.co = {}; }
+  catch(exc) {}
+  return(pE);
+}
+
+
+function getBrowser()
+{
+check=[
+['window.postMessage',
+ 'window.XMLHttpRequest&&(document.postMessage||window.external)',
+ 'document.compatMode',
+ '(document.detachEvent||document.contentType)'],
+['window.execScript','window.pkcs11','window.opera',
+                                  'window.navigator&&window.navigator.vendor'],
+[['IE 8','FF 3','Op 9.5','KDE?'],
+ ['IE 7','FF 2','Op 9','KDE?'],
+ ['IE 6','FF 1.5','Op 8','KDE/Safari 3'],
+ ['IE 5x','NN 7','Op 7','KDE/Konqu. 3']]];
+var j; var b; for(n=0;n<check[1].length;n++){if(!eval(check[1][n])==0)b=n;}
+for(n=check[0].length;n>-1;n--){if(!eval(check[0][n])==0)j=n;}
+return((j>-1&&b>-1)?check[2][j][b]:'?lterer Browser o. unbekannt.');
+}
+
+
+function isNull(pX)
+{
+  if(typeof(pX) == "undefined") return(true);
+  if(pX == null) return(true);
+  return(false);
+}
+
+function nvl(pX,pY)
+{
+  if(isNull(pX)) return(pY);
+  return(pX);
+}
+
+$D = function(pElement, pEvent)
+{
+  if ($(pElement).hasClassName("disabled")) {
+      pEvent.stop();
+  }
+}
+
+
+$E = function(e)
+{
+  // check if console exists
+  if(self.console && self.console.error) {
+    console.error(e);
+  }
+
+  // only for dev-systems
+  if(location.href.indexOf("/co_dev/") >= 0) {
+    CO.msg.addMsg("JS-Error", CO.MsgType.error);
+  }
+
+  return(false);
+}
+
+$V = function(pElements, pMask)
+{
+   pMask = $(pMask);
+
+   if(pMask != null)
+   {
+     if(typeof(pElements) == "string")
+     { pElements = pMask.select("[name="+pElements+"]"); }
+   }
+  else
+   {
+     if(typeof(pElements) == "string")
+     { pElements = $$("[name="+pElements+"]"); }
+   }
+
+  var vArray = [];
+  if(!Object.isArray(pElements)){vArray.push(pElements.value);}
+  else { pElements.each(function(pItem){vArray.push(pItem.value);}); }
+  return(vArray);
+}
+
+$NS = function(pNameSpace)
+{
+  vNSpaces = pNameSpace.split(".");
+
+  var vActualNS = self;
+
+  vNSpaces.each(
+    function(pItem)
+    {
+      if(isNull(vActualNS[pItem]))
+      vActualNS[pItem] = Class.create();
+      vActualNS = vActualNS[pItem];
+    });
+}
+
+
+_coRemoveMessages = function(pElement) {
+
+  //removing errors from element
+  if(window["gVC"] != undefined)
+  {
+      var mask_id = gVC.getMaskIdForHTMLElement(pElement)
+
+      if(mask_id != undefined)
+      {
+         var validators = gVC.getValidatorsForMaskId(mask_id);
+         for(var i=0; i < validators.length; i++)
+         {
+             if((validators[i] instanceof  CO.Validator)
+                && (validators[i].getHTMLElement() == pElement))
+             {
+                validators[i].removeError();
+             }
+         }
+      }
+  }
+}
+
+
+f_filterResults = function (pWindow, pDocEl, pBody)
+{
+   var vResult = pWindow ? pWindow : 0;
+
+   if (pDocEl && (!vResult || (vResult > pDocEl)))
+      vResult = pDocEl;
+   return pBody && (!vResult || (vResult > pBody)) ? pBody : vResult;
+}
+
+
+
+
+//---
+//Firebug, wenn Debug ausgeschalten ist
+if (!("console" in window))
+{
+    var names = ["log", "debug", "info", "warn", "error", "assert", "dir", "dirxml",
+    "group", "groupEnd", "time", "timeEnd", "count",  "profile", "profileEnd"];
+
+    window.console = {};
+    for (var i = 0; i < names.length; ++i)
+        window.console[names[i]] = function() {};
+}
+
+
+function debug(){};
+function debugErr(){};
+function debugMsg(){};
+
+
+var vDbgFuncs = ["doLog", "debug", "info", "warn", "error", "dir", "dirxml",
+  "logGroup", "logGroupEnd", "time", "timeEnd", "profile", "profileEnd", "countCalls"];
+
+for (var i = 0; i < vDbgFuncs.length; ++i)
+    CO[vDbgFuncs[i]] = function() {};
+
+
+// Umrendern der Buttons ----
+
+self.startList = function()
+{
+   if (document.all && document.getElementById) // only old browsers!
+   {
+    inputFields = document.getElementsByTagName("input");
+      for (i=0; i< inputFields.length; i++)
+      {
+         if( inputFields[i].getAttribute("type").toLowerCase() == "submit"
+         ||  inputFields[i].getAttribute("type").toLowerCase() == "button")
+         {
+           inputFields[i].className += " button";
+         }
+      }
+   }
+
+}
+
+startList();
+
+CO.getReturnFalseString=function()
+{
+  return "try{ return(false);}catch(e){return($E(e));}";
+}
+
+
+// Erweiterung des DOM-Baums ----
+
+CO.maxZIndex = 101;
+
+
+Element.addMethods(
+{
+
+coHide: function(pElement) { pElement.addClassName("invisible"); },
+
+coShow: function(pElement) { pElement.removeClassName("invisible"); },
+
+coToggle: function(pElement, pOptions)
+{
+  var vOptions =
+  {
+    mImg: null
+  , onExpand :  function(){}
+  , onCollapse: function(){}
+  , mExpandIcon:  "expand"
+  , mCollapsIcon: "collaps"
+  };
+
+  pOptions = Object.extend(vOptions, pOptions);
+
+  var vImg = $(pOptions.mImg);
+
+  if(vImg && (vImg.nodeName != "IMG"))
+  {
+    vImg = vImg.down("img");
+  }
+
+  if(pElement.hasClassName("invisible"))
+  {
+    pElement.removeClassName("invisible");
+    if(vImg){vImg.coToggleImg(pOptions.mCollapsIcon);}
+    pOptions.onExpand.call(pOptions.mImg);
+  }
+  else
+  {
+    pElement.addClassName("invisible");
+    if(vImg){vImg.coToggleImg(pOptions.mExpandIcon);}
+    pOptions.onCollapse.call(pOptions.mImg);
+  }
+  return(pElement);
+},
+
+coSetImg: function(pElement, pImg)
+{
+  pImg = new CO.Image(pImg);
+
+  var element = $(pElement);
+  if(element.nodeName != "IMG") element = pElement.down("img");
+  if(element) element.replace(pImg.get());
+
+  return(pElement);
+},
+
+coToggleImg: function(pElement, pImg1, pImg2)
+{
+  var element = $(pElement);
+  if(element.nodeName != "IMG") element = pElement.down("img");
+
+  if(isNull(pImg2)){ if(element){ element.coSetImg(pImg1); return(pElement); } }
+  pImg1 = new CO.Image(pImg1); pImg2 = new CO.Image(pImg2);
+
+  if(element)
+  {
+    if(pImg1.compare(element)) element.coSetImg(pImg2);
+    else element.coSetImg(pImg1);
+  }
+
+  return(pElement);
+},
+
+coDisable: function(pElement)
+{
+
+  if(!pElement.hasClassName("disabled"))
+  {
+
+    pElement.addClassName("disabled");
+
+    $CO(pElement).co.onclicksave = pElement.getAttribute("onclick");
+    if(pElement.getAttribute("onclick") != CO.getReturnFalseString())
+    {
+      pElement.setAttribute("onclick", CO.getReturnFalseString());
+    }
+
+    try{ pElement.disabled = true; } catch(exc){}
+  }
+
+  _coRemoveMessages(pElement);
+
+  return(pElement);
+},
+
+coEnable: function(pElement)
+{
+  pElement.removeClassName("disabled");
+
+  if((typeof($CO(pElement).co.onclicksave) != "undefined")
+     && (pElement.getAttribute("onclick") != $CO(pElement).co.onclicksave)
+     )
+  {
+    pElement.setAttribute("onclick", $CO(pElement).co.onclicksave);
+  }
+
+  try{ pElement.disabled = false; } catch(exc){}
+
+  return(pElement);
+},
+
+
+coReadOnly: function(pElement)
+{
+  if(!pElement.readOnly)
+  {
+    pElement.readOnly = true;
+
+    $CO(pElement).co.onclicksave = pElement.getAttribute("onclick");
+
+    if(pElement.getAttribute("onclick") != CO.getReturnFalseString())
+    {
+      pElement.setAttribute("onclick", CO.getReturnFalseString());
+    }
+  }
+
+  _coRemoveMessages(pElement);
+
+  return(pElement);
+},
+
+coReadWrite: function(pElement)
+{
+  if(typeof($CO(pElement).co.onclicksave) != "undefined")
+    pElement.setAttribute("onclick", $CO(pElement).co.onclicksave);
+
+  pElement.readOnly = false;
+
+  return(pElement);
+},
+
+coFormSerialize: function( pElement, pMask, pCheckBrowser, pGetHash )
+{
+  pElement = $(pElement);
+
+  CO.Tools.replaceControlCharacters( pMask );
+
+  var vResult = Form.serialize(pMask, true );
+
+  var vIsIEHack = false;
+
+  if( !isNull(pCheckBrowser) && pCheckBrowser == true )
+  {
+    vIsIEHack = getBrowser().substr(0,2).indexOf('IE') == -1;
+  }
+
+  if(!vIsIEHack)
+  {
+    var vType = pElement.getAttribute("type");
+
+    if(vType && (vType.toLowerCase() == "button" || vType.toLowerCase() == "submit"))
+    {
+      vResult[ pElement.name ] = pElement.value;
+    }
+  }
+
+  return  ( !isNull(pGetHash) && !pGetHash )? Object.toQueryString(vResult) : vResult;
+},
+
+coSerializeElements: function( pElement, pMaskElements, pCheckBrowser, pGetHash )
+{
+  pElement = $(pElement);
+
+  CO.Tools.replaceControlCharacters( pElement.up("form") );
+
+  var vResult = Form.serializeElements(pMaskElements, true );
+
+  var vIsIEHack = false;
+
+  if( !isNull(pCheckBrowser) && pCheckBrowser == true )
+  {
+    vIsIEHack = getBrowser().substr(0,2).indexOf('IE') == -1;
+  }
+
+  if(!vIsIEHack)
+  {
+    var vType = pElement.getAttribute("type");
+
+    if(vType && (vType.toLowerCase() == "button" || vType.toLowerCase() == "submit"))
+    {
+      vResult[ pElement.name ] = pElement.value;
+    }
+  }
+
+  return  ( !isNull(pGetHash) && !pGetHash )? Object.toQueryString(vResult) : vResult;
+},
+
+getName: function(pElement)
+{
+  var vName = "noname";
+
+  $$("label[for='"+pElement.id+"']").each(
+  function(pItem)
+    {
+      vName = pItem.innerHTML;
+    });
+
+  return(vName);
+},
+
+addMsg: function(pElement, pMsg, pType, pOptions)
+{
+  if(isNull($CO(pElement).co.msgs)) pElement.co.msgs = [];
+  var vMsg = CO.msg.addMsg(pMsg, pType, pElement, pOptions);
+  pElement.co.msgs.push(vMsg);
+
+  return(vMsg);
+},
+
+addFatal:     function(pElement, pMsg, pOptions){ return(pElement.addMsg(pMsg, CO.MsgType.fatal,   pOptions)); },
+addError:     function(pElement, pMsg, pOptions){ return(pElement.addMsg(pMsg, CO.MsgType.error,   pOptions)); },
+addWarning:   function(pElement, pMsg, pOptions){ return(pElement.addMsg(pMsg, CO.MsgType.warning, pOptions)); },
+addInfo:      function(pElement, pMsg, pOptions){ return(pElement.addMsg(pMsg, CO.MsgType.info,    pOptions)); },
+
+removeMsgs: function(pElement)
+{
+  $CO(pElement);
+
+  if(typeof(pElement.co.msgs) == "undefined") return;
+
+  pElement.co.msgs.each(function(pItem){pItem.remove()});
+
+  pElement.co.msgs = [];
+},
+
+
+removeMsg: function(pElement, pMsgObj)
+{
+  if(typeof(pElement.msgs) == "undefined")
+    return(pElement);
+
+  if(typeof(pMsgObj) == "undefined")
+  {
+    while(vItem = pElement.msgs.pop())
+    {
+      vItem.remove();
+    }
+  }
+  else
+  {
+    pElement.msgs = pElement.msgs.without(pMsgObj);
+    pMsgObj.remove();
+  }
+
+  return(pElement);
+},
+
+addOverlay: function(element, pOverlayName)
+{
+  return(CO.Overlay.create(pOverlayName, element));
+},
+
+delOverlay: function(element, pOverlayName)
+{
+  return(CO.Overlay.remove(pOverlayName, element));
+},
+
+//callback: function(element, pUrl, pOptions) { new CO.CBUrl(pUrl, nvl(pOptions, {})).callback(element); },
+callback: function(element, pUrl, pOptions){if(isNull(pOptions)) pOptions = {}; pOptions.cbCaller = element;  CO.Callback.request(pUrl, pOptions); },
+
+
+coFire: function(element, pEvent)
+{
+
+  if(document.createEventObject){ var evt = document.createEventObject(); return element.fireEvent('on'+pEvent,evt) }
+  else { var evt = document.createEvent("HTMLEvents"); evt.initEvent(pEvent, true, true ); return !element.dispatchEvent(evt); }
+
+},
+
+selectByName: function(parent, html_name)
+{
+  var vArray = [];
+
+  [html_name].flatten().each(
+    function(pName)
+    {
+      vArray = vArray.concat($(parent).coGetElementsByName(pName));
+    });
+
+  return(vArray);
+},
+
+coGetElementsByName: function(parent, html_name)
+{
+  var found_children = new Array();
+
+  var all_elements = document.getElementsByName(html_name);
+
+  function hasParent(element)
+  {
+    if(element.parentNode == parent)
+    {
+      return(true);
+    }
+    if(element.parentNode == document.body)
+    {
+      return(false);
+    }
+    return hasParent(element.parentNode);
+  }
+
+  for (var i=0; i < all_elements.length; i++)
+  {
+    if(hasParent(all_elements[i]))
+    {
+      found_children.push(all_elements[i]);
+    }
+  }
+
+  return(found_children);
+},
+
+coSetValue: function(element, pValue)
+{
+  element.value = pValue;
+  if(element.defaultValue != pValue) $(element).coFire("change");
+},
+
+/**
+ * Erlaubt es mittels JS den RequiredValidator ein- bzw. auszuschalten.
+ *
+ * @author Dva
+ * @date   06.02.2009
+ */
+coRequired: function( pElement, pRequired )
+{
+  var _element_ = pElement;
+
+  // workaround for IE
+//  if ( ( Prototype.Browser.IE ) && ( ( pElement.type == "select-one" ) || ( pElement.type == "select-multiple" ) ) )
+//    _element_ = $( pElement.parentNode.id );
+
+  if ( pRequired )
+  {
+    if ( !_element_.hasClassName( "MaskRequired" ) )
+    {
+      // if the element type is one of checkbox-group, radiobutton-group or select-(one,many)
+      // instantiate an new NofMOptionsValidator instead of an RequiredValidator
+      if ( ( pElement.type == "checkbox-group" )
+        || ( pElement.type == "radiobutton-group" )
+        || ( pElement.type == "select-one" )
+        || ( pElement.type == "select-multiple" )
+         )
+      {
+        gVC.add( new CO.NofMOptionsValidator( pElement.id, $(pElement.id), 1 ) );
+      }
+      else
+      {
+        gVC.add( new CO.RequiredValidator( pElement ) );
+      }
+      pElement.observe( "blur", function( pEvent ) { gVC.validate( pElement.id ); } );
+      _element_.addClassName( "MaskRequired" );
+    }
+  }
+  else
+  {
+    if ( _element_.hasClassName( "MaskRequired" ) )
+    {
+      gVC.removeValidator( pElement.id );
+      pElement.stopObserving( "blur", function( pEvent ) { gVC.validate( pElement.id ); } );
+      _element_.removeClassName( "MaskRequired" );
+    }
+  }
+}
+});
+
+
+//Event-Funktionen ----
+CO.observe  = function(pObj, pType, pOptions, pFunction)
+{
+
+  if((pObj == "undefined") || (pObj == null))
+  {
+    CO.logGroup("Element existiert nicht! Typ:"+pType+"-Event");
+      CO.error(pFunction);
+    CO.logGroupEnd();
+    return;
+  }
+
+  try
+  {
+  if(Object.isArray(pObj))
+  { pObj.each(function(pElem){ CO.observe(pElem, pType, pOptions, pFunction); });
+  }
+  else
+  { Event.observe(pObj, pType, function(pEvent){CO.handle(pEvent, pType, pObj, pOptions, pFunction);});
+  }
+  }
+  catch(exc)
+  {
+    /* alert("bind error: "+pObj);  */
+  }
+
+}
+
+CO.checkKey = function(pEvent, pOptions)
+{
+  vFullfilled = true;
+
+  if(pOptions.key == -1)  //anyKey
+  {
+    if((pEvent.keyCode != 16) && (pEvent.keyCode != 17) && (pEvent.keyCode != 18))
+      return(true);
+  }
+
+  if(!pOptions.alt)  {pOptions.alt   = false;}
+  if(!pOptions.shift){pOptions.shift = false;}
+  if(!pOptions.strg) {pOptions.strg  = false;}
+
+  if(pOptions.alt   != pEvent.altKey)  { vFullfilled = false; }
+  if(pOptions.shift != pEvent.shiftKey){ vFullfilled = false; }
+  if(pOptions.strg  != pEvent.ctrlKey) { vFullfilled = false; }
+
+  if(pOptions.key)
+    if(pOptions.key != pEvent.keyCode){ vFullfilled = false; }
+
+  return(vFullfilled);
+}
+
+CO.isSubmitAllowed = function( pElement )
+{
+  vFullfilled = true;
+
+  if ( pElement.readAttribute("type") == "submit" )
+  {
+    if ( isNull(pElement.pParentMask)
+    || isNull( pElement.pParentMask.pSubmitAllowed)
+    || (! pElement.pParentMask.pSubmitAllowed) )
+    { vFullfilled = false; }
+  }
+
+  return(vFullfilled);
+}
+
+CO.handle = function(pEvent, pType, pThis, pOptions, pFunction)
+{
+  try{ if($(pThis).hasClassName("disabled")) return; } catch(exc){}
+
+  vFullfilled = true;
+
+  if(pType == "keydown")
+  {
+    vFullfilled = CO.checkKey(pEvent, pOptions);
+  }
+
+  if ( pType == "click" )
+  {
+    vFullfilled = CO.isSubmitAllowed( $(pThis) );
+  }
+
+  if(vFullfilled)
+  {
+    if(pType == "keydown")
+    {
+      if(pOptions.key == -1) //anyKey
+      {
+        pFunction.call(pThis, pEvent, {alt: pEvent.altKey, shift: pEvent.shiftKey, strg: pEvent.ctrlKey, key: pEvent.keyCode});
+        return;
+      }
+    }
+
+    if(pOptions.tempThis)
+    {
+      pFunction.call(pOptions.tempThis, pEvent, pOptions);
+      return;
+    }
+    else
+    {
+      pFunction.call(pThis, pEvent, pOptions);
+    }
+  }
+}
+
+
+CO.Page = Class.create();
+
+CO.Page.setSubTitle = function(pString, pWindow)
+{
+
+}
+
+CO.Page.reload = function()
+{
+  CO.Page.disable();
+  CO.Page.loading();
+  
+  if ( location.href.indexOf('#') > 0 ) {
+    location.replace( location.href.substr(0, location.href.indexOf('#') ) );
+  }
+  else {
+    location.href = location.href;
+  }
+  //location.reload( true );
+  //  location.replace(location.href);
+}
+
+CO.Page.loadUrl = function(pUrl,pUseReplace)
+{
+  CO.Page.disable();
+  CO.Page.loading();
+    
+  var new_href = null;
+  var vUseReplace = nvl(pUseReplace,false);
+  
+  if(typeof(pUrl) == "string")
+  {
+    new_href = pUrl;
+  } 
+  else
+  {
+    if(pUrl.mOptions.onCustomCreate) 
+    {
+      pUrl.mOptions.onCustomCreate();
+    }
+    new_href = pUrl.get();
+  }
+  
+  if ( vUseReplace )
+  {
+    location.replace(new_href);
+  }
+  else
+  {
+    location.href = new_href;
+  }
+}
+
+CO.Page.existsScript = function(pScript)
+{
+  var vReg = new RegExp("\n", "gi");
+  pScript = pScript.replace(vReg, "");
+
+  pScript = new CO.Url(pScript).getBase();
+
+
+  if(isNull(CO.Page.mScripts))
+  {
+    CO.Page.mScripts = [];
+    $$("script").each(
+      function(pItem)
+      {
+        if(!isNull(pItem.src))
+        {
+          CO.Page.mScripts.push(new CO.Url(pItem.src).getBase());
+        }
+      });
+  }
+
+  var vExists = false;
+
+  CO.Page.mScripts.each(
+    function(pItem)
+    {
+      if(pItem.indexOf(pScript) != -1) { vExists |= true; }
+    });
+
+  return(vExists);
+}
+
+// Page loader ---
+
+CO.Page.$load = false;
+CO.Page.loadCount = 0;
+
+CO.Page.loading = function()
+{
+  if(!CO.Page.$load){ CO.Page.$load = new Element("div", {"class": "pageLoading"}).update("Loading"); $(document.body).insert({top: CO.Page.$load}); }
+  CO.Page.loadCount++;
+  CO.Page.$load.style.display = "block";
+}
+
+CO.Page.loaded = function()
+{
+  if(!CO.Page.$load || CO.Page.loadCount==0) return;
+  if(CO.Page.loadCount-- == 1) CO.Page.$load.style.display = "none";
+}
+
+// Page disable ---
+
+CO.Page.$disable = false;
+CO.Page.disableCount = 0;
+
+/*
+CO.Page.disable = function()
+{
+  if(!CO.Page.$disable){ CO.Page.$disable = new Element("div", {"class": "pageDisabled"}); $(document.body).insert({top: CO.Page.$disable}); }
+  CO.Page.disableCount++;
+
+  CO.Page.$disable.style.display = "block";
+}*/
+CO.Page.disable = function()
+{
+  var vOverlay = CO.Overlay.create("pageDisable", $(document.body));
+  vOverlay.addClassName("pageDisabled");
+}
+
+/*
+CO.Page.enable = function()
+{
+  if(!CO.Page.$disable || CO.Page.disableCount==0) return;
+  if(CO.Page.disableCount-- == 1) CO.Page.$disable.style.display = "none";
+}*/
+CO.Page.enable = function()
+{
+  if( CO.Overlay.exists("pageDisable", $(document.body) ) )
+  {
+    CO.Overlay.remove("pageDisable", $(document.body) );
+  }
+}
+
+
+CO.Page.fixMasks = function(pTimout)
+{
+}
+
+
+//Text-Component ----
+CO.Text = Class.create(
+{
+  initialize: function(pText)
+  {
+    this.mText = pText;
+    this.mReplaceText = pText;
+  },
+
+  replace: function(pLabel, pValue)
+  {
+    if(typeof(pLabel) != "string") pLabel = pLabel.get();
+
+    var vReg = new RegExp("%"+pLabel+"%", "gi");
+    this.mReplaceText = this.mReplaceText.replace(vReg, pValue);
+
+    return(this);
+  },
+
+  get: function()
+  {
+    vTemp = this.mReplaceText;
+    this.mReplaceText = this.mText;
+
+    return(vTemp);
+  }
+});
+
+
+
+
+
+//CO.IMGPATH = "https://moco.tugraz.at/dev/img/";
+//Text-Component ----
+CO.Image = Class.create(
+{
+  initialize: function(pSrc, pAlt, pOptions)
+  {
+    if(typeof(pSrc) == "string") this.mSrc  = pSrc;
+    else {this.mSrc = nvl(pSrc.mSrc, pSrc.src); pOptions = nvl(pSrc.mOptions, {});}
+
+    this.mPath = this.mSrc;
+
+    if(this.mPath.search(/\//) == -1)
+      this.mPath = CO.IMGPATH+this.mPath;
+
+    this.mOptions = {"src": this.mPath, "alt": nvl(pAlt, " ")};
+    this.mOptions = Object.extend(this.mOptions, pOptions);
+
+    return(this);
+  },
+
+  compare: function(pImg)
+  {
+
+    pImg = new CO.Image(pImg);
+    if(this.mSrc.search(new RegExp(pImg.mSrc)) != -1) return(true);
+    if(pImg.mSrc.search(new RegExp(this.mSrc)) != -1) return(true);
+
+    return(false);
+  },
+
+  get: function()
+  { return(new Element("img", this.mOptions)); }
+});
+
+
+
+
+
+CO.Tools = Class.create();
+
+/**
+ * Feuert ein Event auf das element ab
+ * z.B. "click", "window:close"
+ */
+CO.Tools.fireEvent = function(element, pEvent)
+{
+  if(!pEvent) return;
+  if( pEvent.match(/:/) ) { $(element).fire(pEvent); }
+  if(document.createEventObject){ var evt = document.createEventObject(); return element.fireEvent('on'+pEvent,evt) }
+  else { var evt = document.createEvent("HTMLEvents"); evt.initEvent(pEvent, true, true ); return !element.dispatchEvent(evt); }
+}
+
+
+
+CO.Tools.cloneOptions = function(pSrcSelectbox, pDestSelectbox, pIncludeOriginalValue)
+{
+  if(!$(pSrcSelectbox) || !$(pDestSelectbox)) return;
+  if($(pSrcSelectbox) == $(pDestSelectbox)) return;
+  if($CO(pDestSelectbox).co.isCloned) return;
+  $CO(pDestSelectbox).co.isCloned = true;
+
+  if(pIncludeOriginalValue)
+  {
+    var vValue = $F(pDestSelectbox);
+    var vOriginalOption = $(pDestSelectbox).options[$(pDestSelectbox).selectedIndex].innerHTML;
+
+    $(pDestSelectbox).update($(pSrcSelectbox).innerHTML);
+
+    if(vValue)
+    {
+      $(pDestSelectbox).insert({top : new Element("option", {"value" : vValue}).update(vOriginalOption)});
+    }
+
+    $(pDestSelectbox).options[0].setAttribute("selected", "true");
+    $(pDestSelectbox).selectedIndex = 0;
+  }
+  else
+  {
+    $(pDestSelectbox).update($(pSrcSelectbox).innerHTML);
+  }
+}
+
+CO.Tools.coToggle = function(pElement, pOptions)
+{
+  pElement = [pElement].flatten();
+
+  var vOptions =
+  {
+    mImg: null
+  , onExpand :  function(){}
+  , onCollapse: function(){}
+  , mExpandIcon:  "expand"
+  , mCollapsIcon: "collaps"
+  };
+
+  pOptions = Object.extend(vOptions, pOptions);
+
+  var vImg = $(pOptions.mImg);
+
+  if(vImg && (vImg.nodeName != "IMG"))
+  {
+    vImg = vImg.down("img");
+  }
+
+  var vInvisible = pElement.first().hasClassName("invisible");
+
+  if(vInvisible)
+  {
+    if(vImg){vImg.coToggleImg(pOptions.mCollapsIcon);}
+    pOptions.onExpand.call(pOptions.mImg);
+    pElement.each(function(elem){ elem.removeClassName("invisible"); });
+  }
+  else
+  {
+    if(vImg){vImg.coToggleImg(pOptions.mExpandIcon);}
+    pOptions.onCollapse.call(pOptions.mImg);
+    pElement.each(function(elem){ elem.addClassName("invisible"); });
+  }
+
+  return(pElement);
+}
+
+CO.Tools.deleteEmptyArrays = function(pObject)
+{
+  var vObject = {};
+
+  Object.keys(pObject).each(
+   function(pItem)
+   {
+     var x = pObject[pItem];
+
+     if(x)
+     {
+       if(x.size == undefined)
+       {
+         vObject[pItem] = pObject[pItem];
+       }
+       else
+       {
+
+         if(x.size() != 0)
+         {
+           vObject[pItem] = pObject[pItem];
+         }
+       }
+     }
+   });
+
+  return(vObject);
+}
+
+CO.Tools.scrollTo = function(pName)
+{
+  var vDest = null;
+
+  if($(pName)) vDest = $(pName);
+  else vDest = $$("[name="+pName+"]")[0];
+
+  if(!isNull(vDest)) 
+  { if(vDest.focus)
+    { 
+      vDest.focus(); 
+    } 
+    
+    if(vDest.scrollIntoView)
+    { 
+      vDest.scrollIntoView(true);
+    }
+    else
+    {
+      vDest.scrollTo();
+    }  
+    
+    window.scrollBy(0, -100); 
+    window.scrollTo(0, window.pageYOffset); 
+  }
+}
+
+CO.Tools.pixelToEm = function(pixels, el)
+  {
+    if(typeof(el) == "undefined") el = document.body;
+
+   var tdiv = document.createElement("div");
+   tdiv.style.height = "1em";
+   tdiv.style.position = "absolute";
+   tdiv.style.top = "-1000px";
+   el.appendChild(tdiv);
+   var emValue = tdiv.offsetHeight;
+   el.removeChild(tdiv);
+   var value = pixels/emValue;
+
+   /*
+   if (Prototype.Browser.IE)
+     return Math.round(value*100*1.15)/100;
+    */
+    return Math.round(value*100)/100;
+  };
+
+CO.Tools.strToNodes = function(pNodesStr)
+{
+  var vReg = new RegExp(" ", "gi");
+  pNodesStr = pNodesStr.replace(vReg, "");
+  var vNodesStrs = pNodesStr.split(",");
+  vNodes = [];
+
+  for(var i = 0; i < vNodesStrs.length; ++i)
+  {
+    vItem = vNodesStrs[i];
+    try { vItem = eval(vItem); } catch(exc){}
+
+    if(typeof(vItem) == "string")
+    {
+      if($(vItem)) vNodes.push($(vItem));
+      else CO.error("CO.Tools.strToNodes undefined: "+vItem);
+    }
+    else
+    {
+      if(Object.isArray(vItem))
+        vNodes = vNodes.concat(vItem);
+      else
+        vNodes.push(vItem);
+    }
+  }
+
+  return(vNodes);
+}
+
+CO.Tools.joinFunc = function(pFunc1, pFunc2)
+{
+  if(isNull(pFunc1)) pFunc1 = function(){};
+  if(isNull(pFunc2)) pFunc2 = function(){};
+  return(function(){pFunc1(); pFunc2()});
+}
+
+CO.Tools.replaceCC = function( pString )
+{
+   return ( typeof( pString ) == "string" )?
+     pString.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g,"")
+   : pString;
+}
+
+CO.Tools.replaceControlCharacters = function( pElements )
+{
+   var vElements = pElements;
+
+   if ( vElements && vElements.tagName == "FORM" )
+   {
+      vElements = $A( pElements.elements );
+   }
+
+   if ( Object.isArray(vElements) )
+   {
+     vElements.each(
+      function( pElement )
+      {
+
+      if (( pElement.tagName == "INPUT" && pElement.type == "text" ) || (pElement.tagName == "TEXTAREA"))
+        {
+         pElement.value = CO.Tools.replaceCC(pElement.value);
+        };
+      }
+     );
+   }
+   else
+   {
+      vElements = CO.Tools.replaceCC(vElements);
+   }
+}
+
+
+CO.Window = Class.create();
+
+CO.Window.mBaseUnit = 14;
+
+CO.Window.typeTiny        = {height: 24, width: 32};
+CO.Window.typeSmall       = {height: 30, width: 40};
+CO.Window.typeNarrow      = {height: 60, width: 45};
+CO.Window.typeSmallNarrow = {height: 30, width: 45};
+CO.Window.typeNormal      = {height: 45, width: 60};
+CO.Window.typeWide        = {height: 45, width: 75};
+CO.Window.typeEmail       = {height: 55, width: 60};
+CO.Window.typeVeryWide    = {type: "VERYWIDE"};
+CO.Window.typeFullScreen  = {type: "FULL"};
+CO.Window.typeForm        = {type: "FORM"};
+CO.Window.typeUser       = {type: "USER"};
+CO.Window.typeMini       = {type: "MINI"};
+
+
+CO.WIN = function(pAnchor, pType, pCustom)
+{
+  var vObj  = $(pAnchor);
+  var vHref = "";
+
+  var vID = "";
+
+  if(pCustom && pCustom.name) vID = pCustom.name;
+  if(pAnchor.name) vID = pAnchor.name;
+
+  var vType = CO.Window.typeNormal;
+
+  if(pType)
+  {
+    vType = pType;
+  }
+
+  if(typeof(pType) == "string") vType = Object.clone(CO.Window["type"+pType]);
+
+  var vHref = "";
+
+  if(typeof(pAnchor) == "string")
+  {
+    var vObj  = $(document.body);
+    vHref = pAnchor;
+  }
+  else
+  {
+    vHref = pAnchor.href;
+
+    if(pAnchor.type)
+    {
+      var vUrl = CO.Url.get(pAnchor);
+
+      if(!vType.overlay && !vType.destination || getBrowser() == "IE 6")
+      {
+        // neues normales Fenster
+        CO.Url.update(pAnchor);
+        vHref = pAnchor.href;
+        pCustom = vUrl.getOptions();
+        pCustom.parameters = {};
+      }
+      else
+      {
+        pCustom = vUrl.getOptions();
+        vHref = vUrl.mBase;
+      }
+    }
+  }
+
+  vType.name = vID;
+
+  CO.Window.open.apply(vObj, [vHref, vType, pCustom]) ;
+  return(false);
+}
+
+CO.OV = function(pAnchor, pType, pHeight, pWidth, pOnCloseJS)
+{
+  var vType = Object.clone(CO.Window.typeNormal);
+
+  if(typeof(pType) == "string")
+    vType = Object.clone(CO.Window["type"+pType]);
+
+  if( typeof(pOnCloseJS) == "function" )
+   { vType['onclose'] = pOnCloseJS; };
+
+  vType.overlay = true;
+
+  if(pHeight) vType.height = pHeight;
+  if(pWidth)  vType.width = pWidth;
+
+//--------------------------------------------------------------------------------  
+// Wenn die Url ein String ist,
+// kann die Option onMaskInvalid nicht abgefragt werden!
+  if(typeof(pAnchor) != "string" && pAnchor.type)
+  {
+      var vUrl = CO.Url.get(pAnchor);
+      var vCustom = {};
+      
+      if(!vType.overlay && !vType.destination || getBrowser() == "IE 6")
+      {
+       // neues normales Fenster
+        CO.Url.update(pAnchor);
+        vCustom = vUrl.getOptions();
+        vCustom.parameters = {};
+      }
+      else
+      {
+        vCustom = vUrl.getOptions();
+      }
+      
+      if(typeof(vCustom) == "undefined") vCustom = {};
+      
+       if ( ! isNull(vCustom.onMaskInvalid) )
+       {
+        if ( ! vCustom.onMaskInvalid.call($(pAnchor), vCustom) ) { return false; };
+       }
+  }
+//--------------------------------------------------------------------------------
+
+  CO.WIN(pAnchor, vType);
+  return(false);
+}
+
+CO.INS = function(pAnchor, pDestinationId, pOnCloseJS)
+{
+  var vType = {destination: pDestinationId, onclose: pOnCloseJS}
+  CO.WIN(pAnchor, vType);
+  return(false);
+}
+
+CO.IOV = function(pAnchor, pCustom)
+{
+
+  CO.WIN(pAnchor, {type:"IFRAME", overlay: true}, pCustom);
+
+  return(false);
+
+}
+
+
+var vInsertCount = 1;
+var vWindowPosCount;
+
+CO.Window.open = function(pUrl, pType, pCustom)
+{
+  if(typeof(pUrl) == "object") pUrl = pUrl.get();
+  if(typeof(pType)   == "undefined") pType   = {};
+  if(typeof(pCustom) == "undefined") pCustom = {};
+
+  var vThis = this;
+
+  var vOptions =
+  {
+      locationBar: false
+    , statusbar:   true
+    , toolbar:     false
+    , menubar:     false
+
+    , scrollbars: true
+    , resizable:  true
+
+    , name: "COWindow" + new Date().getTime()
+
+    , overlay:    false
+
+    , height: 45
+    , width:  60
+    , left:   20
+    , top:    20
+
+    , type: ""
+  };
+
+  // CO.Window.close = function(pCaller){ $(pCaller).fire("window:close"); };
+
+  vOptions = Object.extend(vOptions, pType);
+  vOptions = Object.extend(vOptions, pCustom);
+
+   if(!!!vOptions.name){
+      vOptions.name = "COWindow" + new Date().getTime();
+   }
+
+  // Insertionmodus
+  if(typeof(vOptions.destination) != "undefined")
+  {
+    var vDest = $(vOptions.destination);
+    if(vDest == null){vDest = eval(vOptions.destination);}
+
+    vOptions.destination = vDest;
+
+    var vDiv = new Element("div", {"id": "idInsert"+vInsertCount});
+
+    vDiv.observe("nav:update", function(pEvent){ CO.Window.handleNavEvent(vDiv, pEvent); });
+    vDiv.observe("window:close", function(pEvent)
+    {
+      Event.stop(pEvent);
+
+        if(typeof(vOptions.onclose) != "undefined") vOptions.onclose.call(this);
+
+        if(vDiv && $CO(vDiv).co.onCloseFunction)
+          $CO(vDiv).co.onCloseFunction.call(this);
+
+
+      var vValIds = []; if(self.gVC) { vValIds = gVC.getContainingValidatorIDS(vDiv); }
+
+        try{vDiv.remove();} catch(exc){}
+
+        if(self.gVC) { gVC.removeUnusedValidators(vValIds); }
+    });
+
+    vDiv.observe("window:runInOpener", function(pEvent)
+    {
+      Event.stop(pEvent);
+      pEvent.memo.apply(vThis, [pEvent.memo.mValue]);
+    });
+
+    vOptions.destination.update(vDiv);
+
+    vOptions.destination = vDiv;
+
+    vInsertCount++;
+    vOptions.cbCaller = $(vOptions.destination);
+    vOptions.subPageNode = vDiv;
+    vOptions.requestHeaders = {"Accept": "CALLBACK_INS"};
+
+    CO.Callback.request(pUrl, vOptions);
+
+    return;
+  }
+
+
+  // Fuer folgende Typen gibts keinen Overlaymodus
+  if(vOptions.type == "VERYWIDE") vOptions.overlay = false;
+  if(vOptions.type == "FORM")     vOptions.overlay = false;
+
+  var vHeight = vOptions.height * CO.Window.mBaseUnit;
+  var vWidth  = vOptions.width  * CO.Window.mBaseUnit;
+
+  if(getBrowser() == "IE 6")
+    vOptions.overlay = false;
+
+  if(vOptions.overlay)
+  {
+    CO.Page.disable();
+
+   var vWindow = $(document.body).addOverlay("idOverlayWindow");
+   var pageContent = document.getElementById("pageContent");
+
+   vWindow.observe("window:close", function(pEvent)
+   {
+     Event.stop(pEvent);
+
+      if(typeof(vOptions.onclose) != "undefined") vOptions.onclose.call(this);
+
+      if(vClosedOV && $CO(vClosedOV).co.onCloseFunction)
+        $CO(vClosedOV).co.onCloseFunction.call(this);
+
+      CO.Page.enable();
+
+      var vValIds = []; if(self.gVC) { vValIds = gVC.getContainingValidatorIDS( CO.Overlay.get("idOverlayWindow", document.body) ); }
+
+      var vClosedOV = $(document.body).delOverlay("idOverlayWindow");
+
+      CO.Window.updateParentOverlayIframe();
+      
+      // Fuer Accessibility 
+      vWindow.setAttribute("aria-hidden","true");
+      pageContent.setAttribute("aria-hidden","false");
+      pageContent.removeAttribute("tabindex");
+
+      if(self.gVC) { gVC.removeUnusedValidators(vValIds); }
+      
+      if (self.COEE && COEE.historyBackOverlaysEnabled) {
+        history.go(-2);
+      }
+   });
+
+    vWindow.observe("window:runInOpener", function(pEvent)
+    {
+      Event.stop(pEvent);
+      pEvent.memo.apply(vThis, [pEvent.memo.mValue]);
+    });
+
+    vWindow.addClassName("overlayWindow");
+    
+    // Fuer Accessibility
+    var closeBtn = document.getElementById("idOverlayClose");    
+    closeBtn.setAttribute("aria-label","Schliesse Overlay");
+    closeBtn.setAttribute("role","button");
+    vWindow.setAttribute("role","dialog");
+    vWindow.setAttribute("aria-describedby","idOverlayWindowTitle");
+    vWindow.setAttribute("aria-labelledby","idOverlayWindowTitle");
+    vWindow.setAttribute("aria-hidden","false");
+    vWindow.setAttribute("tabindex","0");
+    pageContent.setAttribute("tabindex","-1");
+    pageContent.setAttribute("aria-hidden","true");
+    vWindow.focus();
+
+    var vVieport = document.viewport.getDimensions();
+
+    // Anpassung wenn der Bildschrim sehr klein
+    vLeft = (vVieport.width / 2) - (vWidth / 2);
+    vTop  = (vVieport.height / 2) - (vHeight / 2);
+
+    if(vOptions.type == "FULL") { vLeft = 20; vTop  = 20; }
+
+    if(typeof(CO.msg) != "undefined")
+    {
+      vMsgTop = CO.msg.getSize();
+      if(vTop <= vMsgTop) vTop = vMsgTop+20;
+    }
+
+    if(vLeft < 0) vLeft = 0;
+    if(vTop  < 0) vTop  = 0;
+
+    if(vLeft+vWidth > vVieport.width)  vWidth  = vVieport.width - vLeft;
+    if(vTop+vHeight  > vVieport.height) vHeight = vVieport.height - vTop;
+
+    vWindow.update($("idWindowTemplate").innerHTML);
+
+    if(vOptions.type == "FULL")
+    {
+      vWindow.setStyle({top: vTop+"px", left: vLeft+"px", bottom: "20px", right: "20px", height:"auto", width:"auto", position: "fixed"});
+    }
+    else if(vOptions.type == "IFRAME") {
+      vWindow.setStyle({top: vTop+"px", left: vLeft+"px", height: vHeight+"px", width: vWidth+"px", position: "fixed", visibility: "hidden"});
+      var vIframe = new Element("iframe", {src: pUrl, "seamless": "seamless", "frameborder": 0});
+      vIframe.showPageHeader = vOptions.showPageHeader;
+      vIframe.showPageNavi = vOptions.showPageNavi;
+      vIframe.onload = function(){ CO.Window.updateOverlayIframe(); }
+      $("idOverlayWindowContent").update(vIframe);
+    }
+    else if(vOptions.type == "MINI")
+    {
+      vWindow.setStyle({top: "0", left: "0", bottom: "0" ,right: "0", height: "", width: "", position: "fixed", visibility: "hidden" });
+      vOptions.onCustomComplete = CO.Tools.joinFunc( CO.Window.updateOverlayMini, vOptions.onCustomComplete);
+    }
+    else
+    {
+      vWindow.setStyle({top: vTop+"px", left: vLeft+"px", height: vHeight+"px", width: vWidth+"px", position: "fixed"});
+    }
+
+    if(vOptions.type != "FULL")
+      vOptions.onCustomComplete = CO.Tools.joinFunc(vOptions.onCustomComplete, CO.Window.setDragable);
+
+    vOptions.subPageNode = vWindow;
+    vOptions.requestHeaders = {"Accept": "CALLBACK_OV"};
+
+    if(vOptions.type == "IFRAME") return;
+
+    CO.Callback.request(pUrl, vOptions);
+  }
+  else
+  {
+    // Anpassung f?r spezielle Fenstertypen
+    if(vOptions.type == "FORM")     { vHeight = 1024;               vWidth  = 1280; }
+    if(vOptions.type == "FULL")     { vHeight = screen.height;      vWidth  = screen.width; }
+    if(vOptions.type == "VERYWIDE") { vHeight = 0.75*screen.height; vWidth  = 0.95*screen.width; }
+
+    if(vOptions.position == "center")
+    {
+      var vWin = {left: top.screenX, top: top.screenY, width: top.outerWidth, height: top.outerHeight};
+
+      if(Prototype.Browser.IE)
+        var vWin = {left: top.screenLeft, top: top.screenTop, width: top.document.body.clientWidth, height: top.document.body.clientHeight};
+
+      vOptions.left = ( top.screenX + Math.ceil(( top.outerWidth - pWidth )/2));
+      pTop = ( top.screenY + Math.ceil(( top.outerHeight - pHeight )/2));
+    }
+   else
+   {
+     if(vOptions.type != "FULL")
+     {
+       if(!vWindowPosCount)
+       {
+        try {
+          if(opener && opener.vWindowPosCount)
+            vWindowPosCount = opener.vWindowPosCount;
+          else
+            vWindowPosCount = 1;
+      }
+      catch (exp)
+      {
+        vWindowPosCount = 1;
+      }
+       }
+
+       if(!vOptions.position)
+         vOptions.position = (vWindowPosCount++ % 6)+1;
+
+       vOptions.left = 20*vOptions.position;
+       vOptions.top  = 20*vOptions.position;
+     }
+   }
+
+    var toStr = function(pName, pValue)
+    {
+      vValStr = pValue;
+      if(pValue === true) {vValStr = "YES";}
+      if(pValue === false){vValStr = "NO";}
+      return(pName+"="+vValStr);
+    }
+
+    if(vOptions.onCustomCreate) vOptions.onCustomCreate();
+
+
+    var vNewWindow =
+      window.open(
+        pUrl, vOptions.name ,
+        toStr("height",     vHeight) + "," +
+        toStr("width",      vWidth) + "," +
+        toStr("left",       vOptions.left) + "," +
+        toStr("top",        vOptions.top)  + "," +
+        toStr("location",   vOptions.locationBar) + "," +
+        toStr("menubar",    vOptions.menubar)     + "," +
+        toStr("resizable",  vOptions.resizable)   + "," +
+        toStr("scrollbars", vOptions.scrollbars)  + "," +
+        toStr("status",     vOptions.statusbar)   + "," +
+        toStr("toolbar",    vOptions.toolbar));
+
+
+    CO.Window.openWindows[vOptions.name] = {mWindow: vNewWindow, mOpener: vThis};
+
+    vNewWindow.vRealOpener = vThis;
+
+      var vOptionsName = vOptions.name;
+    navigator[vOptionsName] = vNewWindow;
+
+    if(vOptions.onCustomComplete) vOptions.onCustomComplete();
+    if(vOptions.onCustomSuccess) vOptions.onCustomSuccess();
+
+    vNewWindow.focus();
+    return(vNewWindow);
+  }
+}
+
+CO.Window.setDragable = function()
+{
+  new Draggable($("idOverlayWindowContent").up(), { handle: $("idOverlayWindowTitle"), starteffect: null, endeffect: null, snap:CO.Window.snapViewport, onStart: CO.Window.clearMargin});
+}
+
+CO.Window.snapViewport = function(x,y,draginfo)
+{
+  var elem = draginfo.element;
+
+  var vMaxX  = document.viewport.getWidth()-200;
+  var vMaxY = document.viewport.getHeight()-200;
+
+  x = x+elem.style.marginLeft;
+
+  return[
+    x<vMaxX ? (x > 0 ? x : 0 ) : vMaxX,
+    y<vMaxY ? (y > 0 ? y : 0) : vMaxY];
+}
+
+CO.Window.clearMargin = function(elem)
+{
+  elem = elem.element;
+  elem.style.display = "none";
+  elem.style.marginLeft = "";
+  elem.style.left = elem.offsetLeft;
+  elem.style.marginTop = "";
+  elem.style.top = elem.offsetTop;
+  elem.style.display = "block";
+}
+
+CO.Window.updateOverlayMini = function()
+{
+  var vWinCont  = $("idOverlayWindowContent");
+
+  var vWinTable = vWinCont.down("table");
+
+  if(!vWinTable){ return(false); }
+
+  var vHeight = vWinTable.clientHeight + 40;
+  var vWidth = vWinTable.clientWidth + 50;
+
+  CO.Window.updateParentOverlayIframe(vHeight, vWidth);
+
+  if( vHeight > document.viewport.getHeight() ) vHeight = document.viewport.getHeight() - 40;
+  if( vWidth > document.viewport.getWidth() )     vWidth = document.viewport.getWidth() - 50;
+
+  vWinCont.up().setStyle({ visibility: "visible" , marginLeft: (-vWidth/2)+"px", marginTop: (-vHeight/2)+"px" , height: vHeight+"px", width: vWidth+"px", bottom: "", right: "", position: "fixed", top: "50%", left: "50%"});
+
+  return(true);
+}
+
+CO.Window.updateOverlayIframe = function()
+{
+  var vWinCont = $("idOverlayWindowContent");
+  var vWindow = vWinCont.up(".overlayWindow");
+  var vIframe = vWinCont.down("iframe");
+
+  if(!vIframe || !vIframe.contentWindow
+     || !vIframe.contentWindow.document
+     || !vIframe.contentWindow.document.body) {
+    return(false);
+  }
+
+  var vIframeDoc = vIframe.contentWindow.document;
+  var vIframeBody = vIframeDoc.body;
+
+  if(!vIframe.showPageNavi) {
+    var vPageNavi =  vIframeBody.down("#idPageNavi");
+    if(vPageNavi) vPageNavi.hide();
+  }
+
+  if(vIframeBody) {
+     try {
+     vIframeBody.observe("window:close", function(pEvent)
+     {
+       Event.stop(pEvent);
+       // Muss leider wegen IE9 so gemacht werden (zoni)
+       //window.setTimeout("$('idOverlayClose').onclick();", 10); // => exception! Macht keinen Sinn!
+       // sonst wuerds auch so gehn
+        CO.Window.close(vWinCont);
+     });
+     } catch(exc) {
+       console.info(exc);
+     }
+  }
+
+  if(!vIframe.showPageHeader) {
+    var vHeader =  vIframeBody.down("#idPageHeader");
+    if(vHeader) vHeader.hide();
+    var vTopHeader =  vIframeBody.down("#idTopPageHeader");
+    if(vTopHeader) vTopHeader.hide();
+    var vFooter = vIframeBody.down("#idPageFooter");
+    if(vFooter) vFooter.hide();
+  }
+
+  var vTitleObj = vIframeBody.down(".headerHeading");
+
+  if( vTitleObj ) {
+    $("idOverlayWindowTitle").update(vTitleObj.innerHTML);
+  }
+
+  var vHeight = vIframeBody.scrollHeight + 40;
+  var vWidth = vIframeBody.scrollWidth + 50;
+
+  if( vHeight > document.viewport.getHeight() ) vHeight = document.viewport.getHeight() - 40;
+  if( vWidth > document.viewport.getWidth() )     vWidth = document.viewport.getWidth() - 50;
+
+  vWinCont.up().setStyle({ visibility: "visible" , marginLeft: (-vWidth/2)+"px", marginTop: (-vHeight/2)+"px" , height: vHeight+"px", width: vWidth+"px", bottom: "", right: "", position: "fixed", top: "50%", left: "50%"});
+
+  vWinCont.setStyle({padding:0}); // kein padding bei iframe
+  vIframe.setAttribute("width", vWidth);
+  vIframe.setAttribute("height", vWinCont.getHeight());
+
+  vWindow.setStyle({visibility: "visible" });
+
+  if(self.Draggable) {
+    CO.Window.setDragable();
+  }
+
+  return(true);
+}
+
+CO.Window.updateParentOverlayIframe = function(pHeight, pWidth)
+{
+  if(window.frameElement && window.frameElement.tagName ==  "IFRAME") {
+    if(parent.CO && parent.CO.Window){
+      if(pHeight) { pHeight += "px"; } else { pHeight = "auto"; }
+      if(pWidth) { pWidth += "px"; } else { pWidth = "auto"; }
+      document.body.setStyle({height: pHeight, width: pWidth});
+      parent.CO.Window.updateOverlayIframe();
+    }
+  }
+}
+
+CO.Window.openWindows = [];
+
+docBody.observe("window:close", function(pEvent)
+{
+  if(window.opener == null)
+  {
+    if(pEvent.target && pEvent.target.tagName == "A" && pEvent.target.href && pEvent.target.href != "#")
+    {
+      location.href = pEvent.target.href;
+    }
+    else
+    {
+      history.back();
+    }
+  }
+  else
+  {
+    // adjust for co-ee to close iframes properly (IE does not allow to override close()-method)
+    if (window.frameElement && window.frameElement.closeIframe)
+    { 
+      window.frameElement.closeIframe(); 
+    }
+    else
+    { 
+      window.close(); 
+    }
+  }
+});
+
+docBody.observe("window:runInOpener", function(pEvent)
+{
+  var vRealOpener = window.opener.document.body;
+
+  if(!isNull(window.opener.CO.Window.openWindows[window.name]))
+    vRealOpener = window.opener.CO.Window.openWindows[window.name].mOpener;
+
+  if(!isNull(window.opener)){ Event.stop(pEvent); window.opener.CO.Window.eval(vRealOpener, pEvent.memo); }
+});
+
+CO.Window.eval = function(pThis, pFunction)
+{
+  eval("newFunc = "+pFunction+";");
+  newFunc.apply($(pThis), [pFunction.mValue]);
+}
+
+CO.Window.close  = function(element)
+{
+  if(!$(element)) { element = $(document.body); }
+
+  if(Object.isArray(element))
+  {
+    element.each(function(pItem){ CO.Window.close(pItem); })
+  }
+
+  if(!$(element).fire) { element = $(document.body); }
+  $(element).fire("window:close");
+}
+
+CO.Window.runInOpener  = function(element, pFunction, pValue)
+{
+  if(!$(element)) { element = $(document.body); }
+
+  pFunction.mValue = pValue;
+
+  if(!$(element).fire) { element = $(document.body); }
+
+  $(element).fire("window:runInOpener", pFunction);
+  return(true);
+}
+
+try
+{
+if($("idWindowTemplate") != null)
+  CO.Window.template = $("idWindowTemplate").innerHTML;
+//$("idWindowTemplate").remove();
+}
+catch(exc){}
+
+CO.Window.register = function(pElement)
+{
+  pElement = $(pElement);
+  pElement.observe("window:close", function(pEvent){ CO.Window.handleWindowEvent(pElement, pEvent); });
+  pElement.observe("nav:update",   function(pEvent){ CO.Window.handleNavEvent(pElement, pEvent); });
+}
+
+CO.Window.handleWindowEvent = function(pElement, pEvent)
+{
+
+}
+
+CO.Window.handleNavEvent = function(pElement, pEvent)
+{
+  Event.stop(pEvent);
+
+  if(typeof($CO(pElement).co.navi) == "undefined")
+  {
+    var vNavis = pElement.select(".nav");
+    if(vNavis.length == 0) { CO.error("Menue nicht gefunden"); return;}
+    $CO(pElement).co.navi = new CO.Navigation(vNavis[0]);
+  }
+
+  try { pEvent.memo.call($CO(pElement).co.navi); }
+  catch(exc){ CO.warn("Fehler bei Menueauruf"); CO.dir(exc); }
+}
+
+
+CO.Window.clientWidth = function()
+{
+   return f_filterResults (
+      window.innerWidth ? window.innerWidth : 0,
+      document.documentElement ? document.documentElement.clientWidth : 0,
+      document.body ? document.body.clientWidth : 0
+   );
+}
+
+CO.Window.clientHeight = function ()
+{
+   return f_filterResults (
+      window.innerHeight ? window.innerHeight : 0,
+      document.documentElement ? document.documentElement.clientHeight : 0,
+      document.body ? document.body.clientHeight : 0
+   );
+}
+
+CO.Window.scrollLeft = function ()
+{
+   return f_filterResults (
+      window.pageXOffset ? window.pageXOffset : 0,
+      document.documentElement ? document.documentElement.scrollLeft : 0,
+      document.body ? document.body.scrollLeft : 0
+   );
+}
+
+CO.Window.scrollTop = function ()
+{
+   return f_filterResults (
+      window.pageYOffset ? window.pageYOffset : 0,
+      document.documentElement ? document.documentElement.scrollTop : 0,
+      document.body ? document.body.scrollTop : 0
+   );
+}
+
+CO.Window.onWindowLoaded=function(pFun2Call, pCheckTimeInMs, pRemoveAfterFunCall)
+{
+   var last_call_timestamp =  (new Date()).getTime();
+   var next_call = null;
+   var event_instance = function()
+   {
+      var current_time = new Date().getTime();
+
+      if(current_time < (last_call_timestamp + pCheckTimeInMs))
+      {
+        last_call_timestamp = current_time;
+
+        if((next_call == null) || (next_call <= current_time + 10))
+        {
+          window.setTimeout(event_instance, pCheckTimeInMs);
+          next_call = current_time + pCheckTimeInMs;
+        }
+
+        return true;
+      }
+
+      if((pRemoveAfterFunCall == undefined) || (pRemoveAfterFunCall == true))
+      {
+        document.removeEventListener("DOMSubtreeModified", event_instance, false);
+      }
+
+      pFun2Call();
+
+      return true;
+   }
+
+   document.addEventListener("DOMSubtreeModified",event_instance, false);
+}
+
+CO.Window.register(docBody);
+
+//Event.observe(window, "unload", function(){  gVC.removeAllValidators(); } );
+
+
+CO.Navigation = Class.create(
+{
+  initialize: function(pNavBox)
+  {
+    var vReg = new RegExp("\n", "gi");
+
+    this.mNavBox = $(pNavBox);
+    this.mNav = [];
+
+    function getText(pObj)
+    {
+      vInner = null;
+
+      while($(pObj) != null)
+      {
+        vInner = $(pObj);
+        pObj = $(pObj).firstDescendant();
+      }
+
+      return(vInner.innerHTML.replace(vReg, ""));
+    }
+
+    vSections = new Hash();
+
+    this.mNavBox.select(".coNavSection").each(
+      function(pSection)
+      {
+        vSections.set(getText(pSection), pSection);
+      });
+
+    this.mSections = vSections;
+
+    var vNav = new Hash();
+    var vGroupName = "nogroup";
+    var vEntries   = new Hash();
+
+    this.mNavBox.select(".coNavGroup").each(
+      function(pGroup)
+      {
+        vGroupName = getText(pGroup);
+        vNav.set(vGroupName, pGroup);
+        pGroup.mEntries = new Hash();
+        vEntries = pGroup.mEntries;
+
+        pGroup.select("a").each(
+          function(pEntry)
+          {
+            var vEntryName = getText(pEntry);
+            vEntries.set(vEntryName, pEntry);
+          });
+      });
+
+    this.mNav = vNav;
+
+    return(this);
+  },
+
+  debug: function()
+  {
+    this.mNav.each(
+      function(pGroup)
+      {
+        CO.info("Gruppe: ", pGroup);
+        pGroup.value.mEntries.each(function(pEntry){ CO.info("pEntry: ", pEntry); });
+      });
+  },
+
+  hide: function(pGroup, pEntry) {this.mNav.get(pGroup).mEntries.get(pEntry).coHide();},
+  show: function(pGroup, pEntry) {this.mNav.get(pGroup).mEntries.get(pEntry).coShow();},
+
+  hideGroup: function(pGroup) {this.mNav.get(pGroup).coHide();},
+  showGroup: function(pGroup) {this.mNav.get(pGroup).coShow();},
+
+  hideSection: function(pSection)
+  {
+    pSection = this.mSections.get(pSection);
+    pSection.coHide()
+
+    var vGroup  = pSection.next();
+
+    while(vGroup.hasClassName("coNavGroup"))
+    {
+      vGroup.coHide();
+      vGroup = vGroup.next();
+      if(vGroup == null) break;
+    }
+  },
+  showSection: function(pSection)
+  {
+    pSection = this.mSections.get(pSection);
+    pSection.coShow();
+
+    var vGroup  = pSection.next();
+
+    while(vGroup.hasClassName("coNavGroup"))
+    {
+      vGroup.coShow();
+      vGroup = vGroup.next();
+      if(vGroup == null) break;
+    }
+  },
+
+  enable:  function(pGroup, pEntry) {this.mNav.get(pGroup).mEntries.get(pEntry).coEnable();},
+  disable: function(pGroup, pEntry) {this.mNav.get(pGroup).mEntries.get(pEntry).coDisable();},
+
+  select:   function(pGroup, pEntry) { this.deselect(pGroup); this.mNav.get(pGroup).mEntries.get(pEntry).coDisable().addClassName("selected");},
+  deselect: function(pGroup, pEntry) { var vEntry = this.mNav.get(pGroup).mEntries.get(pEntry); if(vEntry.hasClassName("selected")){ vEntry.coEnable().removeClassName("selected");} },
+  deselect: function(pGroup) { this.mNav.get(pGroup).mEntries.each(function(pItem){ if(pItem.value.hasClassName("selected")){ pItem.value.coEnable().removeClassName("selected");} });},
+
+
+  fix:   function(){ this.unfix(); vDiv = this.mNavBox.up(); vDiv.style.height = vDiv.offsetHeight+"px";  this.mNavBox.setStyle({position: "fixed", zIndex: "1", right: "0px", top:"0px", border: "3px solid green"}); CO.msg.layout();},
+  unfix: function(){ this.mNavBox.setStyle({position: "static", right: "", border: "", top:""});  CO.msg.layout();}
+});
+
+var gNoCacheCount = 0;
+
+
+
+CO.Url = Class.create(
+{
+  initialize: function(pUrl)
+  {
+    this.mOptions = {};
+    this.mParams = new Hash();
+    this.mHash = "";
+    this.mSerializeForm = "";
+    this.mSerializeInput = "";
+
+    this.setBase(pUrl);
+
+    return(this);
+  },
+
+  setBase: function(pUrl)
+  {
+    // url kommt hier encoded rein
+  var vUrlParts = pUrl.split("#");
+
+  if (vUrlParts[1])
+  {
+    this.mHash = vUrlParts[1];
+  }
+
+    var vBaseQuery = vUrlParts[0].split("?");
+
+    this.mBase = vBaseQuery[0];
+
+    if(vBaseQuery[1])
+    {
+      this.setParams(nvl(vBaseQuery[1],"").toQueryParams());
+    }
+
+    return(this);
+  },
+
+
+  addParam: function(pName, pValue)
+  {
+    if(isNull(this.mParams.get(pName)))
+    {
+      return(this.setParam(pName, pValue));
+    }
+    else
+    {
+      var vArray = [];
+
+      if(Object.isArray(this.mParams.get(pName)))
+        vArray = this.mParams.get(pName);
+      else
+        vArray.push(this.mParams.get(pName));
+
+     if ( Object.isArray( pValue ) )
+     {
+       pValue.each ( function ( pEntry ) { if ( pEntry !== undefined ) vArray.push( pEntry ); } );
+     }
+     else
+     {
+       if ( pValue !== undefined ) vArray.push(pValue);
+     }
+
+
+      this.setParam(pName, vArray);
+    }
+
+    return(this);
+  },
+  setOptions: function(pOptions) { this.mOptions = pOptions; return(this); },
+  getBase:  function() { return(this.mBase); },
+  setParam: function(pName, pValue){ this.mParams.set(pName, nvl(pValue,"")); return(this); },
+  setParams:function(pObject) { this.mParams = this.mParams.merge(pObject); return(this); },
+  delParam: function(pName) { this.mParams.unset(pName); return(this); },
+  delParamValue : function(pName, pValue)
+  {
+    if(!this.mParams.get(pName)) return(this);
+
+    if( Object.isArray( this.mParams.get(pName)) )
+    { this.mParams.set(pName, this.mParams.get(pName).without(pValue)); }
+    else
+    { if(this.mParams.get(pName) == pValue){ this.delParam(pName); };  }
+
+    return(this);
+  },
+  getParam: function(pName){ return(this.mParams.get(pName)); },
+  setHash:  function(pValue) { this.mHash = pValue; return(this); },
+  getHash:  function() { return(this.mHash); },
+  delHash:  function() { this.mHash = ""; return(this); },
+  setNoCache: function()
+  {
+    var vSegments = this.mBase.split("/NC_");
+    if(!isNull(vSegments[1])) this.mBase = vSegments[0];
+
+    this.mBase += "/NC_"+Math.round(Math.random()*10000);
+    return(this);
+  },
+
+  compare: function(pUrl)
+  {
+    if(this.mBase != pUrl.mBase) return(false);
+    if(this.mQuery.size() != pUrl.mQuery.size()) return(false);
+    var vIsSame = true;
+    this.mQuery.each(function(pItem){ if(pUrl.mQuery.get(pItem.key) != pItem.value)  vIsSame |= false; });
+    return(vIsSame);
+  },
+
+  serializeMask: function( pMaskId )
+  {
+    this.mSerializeForm = pMaskId;
+  var vMask = $(this.mSerializeForm);
+
+  CO.Tools.replaceControlCharacters( vMask );
+
+    this.setParams(Form.serialize(vMask, true));
+    return this;
+  },
+
+  serializeInput: function( pElement )
+  {
+    if(typeof(pElement) == "string")
+   {
+     //var vElements = $(pElement).select("input,select,textarea");
+     var vElements = $A($(pElement).select("[name]")).findAll( function( pElement ) { return pElement.tagName == "INPUT" || pElement.tagName == "SELECT" || pElement.tagName == "TEXTAREA";} );
+
+     CO.Tools.replaceControlCharacters( vElements );
+      this.setParams(Form.serializeElements( vElements, true));
+      return this;
+    }
+
+    var vThisUrl = this;
+
+    pElement = [pElement];
+
+   var vElementS = pElement.flatten();
+    CO.Tools.replaceControlCharacters( vElementS );
+
+    vElementS.each(
+      function(pElem)
+      {
+      // Wenn das Element wieder Kinder besitzt werden die Kinder als Array an die Url angehÃ¤ngt!
+        var vFormElements = $(pElem).select("input,select,textarea");
+
+        if(vFormElements == null)
+        {
+          if(pElem.name)
+          {
+            var vValue = $F(pElem);
+            if(vValue) vThisUrl.addParam(pElem.name, vValue);
+          }
+        }
+        else
+        {
+          vThisUrl.setParams(Form.serializeElements(vFormElements,true));
+        }
+      });
+
+    return this;
+
+  },
+
+  updateDestination: function( pElementId )
+  {
+    var vJSUrl = CO.Url.get( pElementId );
+
+    if( $( pElementId ).readAttribute("type") == "button" )
+    {
+      $( pElementId ).up("Form").action = vJSUrl.get();
+    }
+    else
+    {
+      $( pElementId ).href = vJSUrl.get();
+    }
+  },
+
+  get: function()
+  {
+    var vUrl = this.mBase;
+    if(params = Object.toQueryString(this.mParams)) { vUrl += (vUrl.include('?') ? '&' : '?') + params; }
+    if(this.mHash) { vUrl += "#"+this.mHash; }
+    return(vUrl); // muss wieder encoded raus
+  },
+
+  getOptions: function()
+  {
+    var vOptions = {};
+    if(!isNull(this.mOptions))    { vOptions = this.mOptions; }
+
+    if(isNull(vOptions.parameters)) { vOptions.parameters = {}; }
+
+    Object.extend(vOptions.parameters, this.mParams.toObject());
+
+    if(this.mHash != "")
+    {
+      var vOnSuccessSave = vOptions.onCustomSuccess;
+      if(isNull(vOnSuccessSave)) vOnSuccessSave = function(){}
+
+      var vHash = this.mHash;
+
+      vOptions.onCustomSuccess =
+       function(pTransport, pOptions)
+       {
+         vOnSuccessSave(pTransport, pOptions);
+         CO.Tools.scrollTo(vHash);
+       }
+
+    };
+
+    return(vOptions);
+  },
+
+  callback: function(pCaller)
+  {
+    var vOptions = this.getOptions();
+    //console.dir(vOptions);
+    if(!isNull(pCaller)) { vOptions.cbCaller = pCaller; }
+    CO.Callback.request.call(pCaller, this.mBase, vOptions);
+    return(this);
+  }
+
+});
+
+CO.urls = [];
+
+CO.Url.get = function(element, pUrlIdx)
+{
+
+  if(element.tagName == "A" && !pUrlIdx)
+  {
+    if(element.type) return(CO.urls[element.type].call(element, element));
+    return(new CO.Url(element.href));
+  }
+
+  var vUrl = CO.urls[pUrlIdx].call(element, element);
+
+  if(element.type)
+  {
+    if((element.type == "submit" || element.type == "button")
+       && element.name && element.value)
+    {
+      vUrl.setParam(element.name,element.value);
+
+    }
+  }
+
+  return(vUrl);
+}
+
+CO.Url.update = function(pAnchor)
+{
+  CO.Url.get(pAnchor).updateDestination(pAnchor);
+}
+
+
+CO.CB = function(element, pUrlIdx)
+{
+  element = $(element);
+  CO.Url.get.call(element, element, pUrlIdx).callback(element);
+
+  /*
+  if(pUrlIdx)
+  {
+    CO.Url.get.call(element, pUrlIdx).callback(element);
+  }
+  else
+  {
+    CO.Url.get.call(element, element).callback(element);
+    //if( $(U).getAttribute("type").toLowerCase() == "submit" || $(U).getAttribute("type").toLowerCase() == "button" ){ vUrl.setParam(U.name,U.value);  }
+  }
+  */
+
+  return false;
+}
+
+
+
+CO.CBUrl = Class.create(CO.Url,
+{
+  initialize: function($super, pUrl, pOptions)
+  {
+    if(typeof(pOptions) == "string") { this.mOptions = pOptions.evalJSON(); }
+    if(typeof(pOptions) == "object") { this.mOptions = pOptions; }
+    if(isNull(this.mOptions)) { this.mOptions = {}; }
+
+    if(typeof(pUrl) == "object") $super(pUrl.get()); else $super(pUrl);
+
+    return(this);
+  },
+
+  getUrl: function() { return(this.mBase); }
+});
+
+
+CO.Overlay = Class.create();
+
+CO.Overlay.create = function(pOverlayName, element, pStyle)
+{
+  if(!$(element)) { element = $(document.body); }
+  if(isNull(pStyle)) pStyle = {};
+
+  var vElementStyle = {};
+  var vOverlaySyle  = { zIndex: CO.maxZIndex++, position: "absolute" };
+
+  var vDiv = new Element("div");
+
+  var vPosition    = Position.cumulativeOffset(element);
+  var vDimensions  = element.getDimensions();
+  vDimensions.left = vPosition[0];
+  vDimensions.top  = vPosition[1];
+
+  if(isNull(pStyle.top))  pStyle.top  = 0;
+  if(isNull(pStyle.left)) pStyle.left = 0;
+
+  if (element == $(document.body))
+  {
+    if (Prototype.Browser.IE6)
+    {
+      vElementStyle =
+      {
+          left:   "0px"
+        , top:    "0px"
+        , width:  "100%"
+        , height: document.documentElement.clientHeight
+      };
+    }
+    else
+    {
+      if (Prototype.Browser.IE7)
+      {
+        vElementStyle =
+        {
+            left:   "0px"
+          , top:    "0px"
+          , right:  "0px"
+          , bottom:  "0px"
+          , position: "fixed"
+        };
+      }
+      else
+      {
+        vElementStyle =
+        {
+            left:   "0px"
+          , top:    "0px"
+          , right:  "0px"
+          , bottom:  "0px"
+          , position: "fixed"
+        };
+      }
+    }
+  }
+  else
+  {
+    vElementStyle =
+    {
+        left:   (parseInt(vDimensions.left)   + parseInt(pStyle.left)) + "px"
+      , top:    (parseInt(vDimensions.top)    + parseInt(pStyle.top)) + "px"
+      , width:  (parseInt(vDimensions.width)) + "px"
+      , height: (parseInt(vDimensions.height)) + "px"
+    };
+  }
+
+  if(isNull(element.overlaylist)) element.overlaylist = new Hash();
+  var vArray = nvl(element.overlaylist.get(pOverlayName), []);
+
+  if(vArray.last()) { vArray.last().style.display = "none"; }
+
+  vArray.push(vDiv);
+  element.overlaylist.set(pOverlayName,vArray);
+
+
+  vElementStyle = Object.extend(pStyle, vElementStyle);
+
+  vDiv.setStyle(Object.extend(vOverlaySyle, vElementStyle));
+
+  //$("pageContent").setStyle({position : "relative" });
+  $(document.body).insert({top: vDiv});
+
+  vDiv.setStyle({ margin: "0px"});  // redraw
+
+  return(vDiv);
+}
+
+CO.Overlay.exists = function(pOverlayName, element)
+{
+  if(!$(element)) { element = $(document.body); }
+  if(isNull(element.overlaylist)) return(false);
+  var vArray = nvl(element.overlaylist.get(pOverlayName), []);
+  if(vArray.last()) { return(true); }
+  return(false);
+}
+
+CO.Overlay.get = function(pOverlayName, element)
+{
+  if(!$(element)) { element = $(document.body); }
+  if(isNull(element.overlaylist)) return(false);
+  var vArray = nvl(element.overlaylist.get(pOverlayName), []);
+  if(vArray.last()) { return(vArray.last()); }
+  return(false);
+}
+
+CO.Overlay.remove = function(pOverlayName, element)
+{
+  if(!$(element)) { element = $(document.body); }
+
+  if(isNull(element.overlaylist)) return(false);
+  var vArray = nvl(element.overlaylist.get(pOverlayName), []);
+
+  if(vArray.last())
+  {
+    var vClosedOV = vArray.pop().remove();
+
+    if(vArray.last())
+    {
+      vArray.last().style.display = "block";
+    }
+
+    element.overlaylist.set(pOverlayName,vArray);
+
+    return(vClosedOV);
+  }
+
+  return(false);
+}
+
+//--------------------------------------------------------------------------------//
+// Dataservice BEGIN                                                              //
+//--------------------------------------------------------------------------------//
+
+CO.DsConfig = function(config, element) {
+
+  var self = this;
+  self.config = config;
+
+  self.getField = function(fieldId) {
+    var result = null;
+
+    $$(".dsField_" + fieldId).each(function(field) {
+      result = field;
+    });
+
+    return result;
+  }
+  
+  self.getValue = function(fieldId) {
+    var field = self.getField(fieldId);
+    if( field ) { return $F(field); }
+    return null;
+  }
+  
+  self.getParamValue = function(fieldId, urlParamName, fallbackValue) {
+    if( fieldId ) {    
+      var value = self.getValue(fieldId);
+      if( value ) return value;
+    }
+    
+    if( urlParamName ) {    
+      var value = new CO.Url(location.href).getParam(urlParamName);
+      if( value ) return value;
+    }
+    
+    return fallbackValue;
+  }  
+
+  /**
+   * update Events for DataService Filter Mask
+   *
+   * @param {String array of ids for Parameter} pParams Additional Parameters for Callback
+   */
+  self.updateField = function(fieldId, pParams) {
+      var field = self.getField(fieldId);
+
+      if(!field) {
+        CO.msg.addError("DS-Error: field not found ("+fieldId+")");
+        return false;
+      }
+
+      var maskId = field.up("form").identify();
+
+      var urlBase = "!wbgeneric.get/DS/";
+
+      if(location.href.indexOf("/DS/") > 0) {
+        urlBase = "../../!wbgeneric.get/DS/";
+      }
+
+      new CO.Url(urlBase + self.config.uri)
+          .serializeMask(maskId)
+          .setParam("pUpdateFieldWithId", fieldId)
+          .setParam("$presenter", "EXPORT_UPDATE_FIELD_PARTIAL")
+          .setParams(pParams)
+          .callback(null);
+    }
+
+  return {
+      getField: self.getField
+    , getValue: self.getValue
+    , getParamValue: self.getParamValue
+    , updateField: self.updateField
+  }
+}
+
+CO.DsConfigS = {};
+
+//--------------------------------------------------------------------------------//
+// coCss BEGIN                                                                    //
+//--------------------------------------------------------------------------------//
+CO.CSS = Class.create();
+
+
+CO.CSS.modifyClass = function(pClass, pProperty, pValue){
+   var vToAdd = false;
+   var vStyleIdx, vRuleIdx, vRules;
+//alert("modifyClass: "+ pClass + '  '+  pProperty+ ': ' + pValue);
+
+   for (vStyleIdx = 0; vStyleIdx < document.styleSheets.length; vStyleIdx++){
+   if (document.styleSheets[vStyleIdx]['rules']){
+      vRules = 'rules';
+   }
+   else {
+     if (document.styleSheets[vStyleIdx]['cssRules']) {
+         vRules = 'cssRules';
+     }
+     else {
+         //alert("Rules");
+         }
+      }
+      for (vRuleIdx = 0; vRuleIdx < document.styleSheets[vStyleIdx][vRules].length; vRuleIdx++){
+         if (document.styleSheets[vStyleIdx][vRules][vRuleIdx].selectorText == pClass){
+           if (document.styleSheets[vStyleIdx][vRules][vRuleIdx].style[pProperty]){
+               document.styleSheets[vStyleIdx][vRules][vRuleIdx].style[pProperty] = pValue;
+               vToAdd = true;
+               break;
+            }
+         }
+      }
+
+      if (vToAdd){
+         if (document.styleSheets[vStyleIdx].addRule){
+            document.styleSheets[vStyleIdx].addRule(pClass, pProperty + ': ' + pValue + ';');
+         }
+         else{
+            if (document.styleSheets[vStyleIdx].insertRule){
+               document.styleSheets[vStyleIdx].insertRule(pClass + ' { ' + pProperty + ': ' + pValue + '; }', document.styleSheets[vStyleIdx][vRules].length);
+            }
+         }
+      }
+   }
+}
+
+CO.CSS._addStyle = function(pStyle, pCssMediaType){
+  var head = document.getElementsByTagName("head")[0];
+  var headStyles = document.getElementsByTagName("head")[0].getElementsByTagName("style");
+  var oldStyle = '';
+  var foundOldStyle = false;
+  var css_style;
+
+  for( var cssIndex=headStyles.length - 1; cssIndex > 0 && !foundOldStyle; cssIndex--)
+  {
+    if ( pCssMediaType == headStyles[cssIndex].media )
+    {
+      foundOldStyle = true;
+      oldStyle = headStyles[cssIndex].innerHTML;
+      head.removeChild( headStyles[cssIndex] );
+    }
+  }
+
+  css_style = document.createElement("STYLE");
+  css_style.type = "text/css";
+  css_style.media = pCssMediaType;
+  css_style.appendChild(document.createTextNode( oldStyle + pStyle));
+  head.appendChild(css_style);
+}
+
+CO.CSS._addStyleIE = function(pStyle, pCssMediaType){
+  var styleSheetCollection = document.styleSheets;
+  var oldStyle = '';
+  var foundOldStyle = false;
+  var styleSheetIndex = 0;
+
+  for( var cssIndex=styleSheetCollection.length - 1; cssIndex > 0 && !foundOldStyle; cssIndex--)
+  {
+    if ( pCssMediaType == styleSheetCollection[cssIndex].media )
+    {
+      foundOldStyle = true;
+      styleSheetIndex = cssIndex;
+      oldStyle = styleSheetCollection[cssIndex].cssText;
+      var sSheet = styleSheetCollection[cssIndex];
+      if (sSheet.owningElement)
+        sSheet.owningElement.parentNode.removeChild(sSheet.owningElement);
+    }
+  }
+
+  var newStyleSheet = document.createStyleSheet();
+  newStyleSheet.media = pCssMediaType;
+  newStyleSheet.cssText = oldStyle + pStyle;
+}
+
+CO.CSS.addStyle = function(pStyle, pCssMediaType){
+  if(Prototype.Browser.IE){
+    CO.CSS._addStyleIE(pStyle, pCssMediaType);
+  } else {
+    CO.CSS._addStyle(pStyle, pCssMediaType);
+  }
+}
+//--------------------------------------------------------------------------------//
+// coCss END                                                                      //
+//--------------------------------------------------------------------------------//
+
+
+
+//--------------------------------------------------------------------------------//
+// erase control characters for IE und FF - begin!                                //
+//--------------------------------------------------------------------------------//
+
+
+function submitWithoutControlChars(event)
+{
+    var target = event ? event.target : this;
+
+   CO.Tools.replaceControlCharacters(target);
+
+    // call real submit function
+    this._submit();
+}
+
+function overrideSubmit()
+{
+// // capture the onsubmit event on all forms
+// // browser specific( IE, Chrome )
+// // todo: check!
+// //window.addEventListener('submit', submitWithoutControlChars, true);
+
+// // If a script calls someForm.submit(), the onsubmit event does not fire,
+// // so we need to redefine the submit method of the HTMLFormElement class.
+  // if( !isNull(window.HTMLFormElement) && !isNull(window.HTMLFormElement.prototype) && !isNull(window.HTMLFormElement.prototype.submit) )
+  // {
+    // window.HTMLFormElement.prototype._submit = HTMLFormElement.prototype.submit;
+    // window.HTMLFormElement.prototype.submit = submitWithoutControlChars;
+  // }
+
+// geht auch nicht!
+// wenn wir die submit funktion Ã¼berschreiben, wird der Validator im onsubmit-handler nicht mehr ausgefÃ¼hrt!
+   if ( document.forms )
+   {
+     for( i = 0; i < document.forms.length; i++)
+     {
+       if( !document.forms[i]._submit )
+      {
+         document.forms[i]._submit = document.forms[i].submit;
+         document.forms[i].submit = submitWithoutControlChars;
+      }
+     }
+   }
+}
+
+// fï¿½r FF; funktioniert nicht im IE und im Chrome; Safari ?;
+// Chrome und Safari lassen keine Steuerzeichen zu! -> nicht notwendig!
+
+
+//--------------------------------------------------------------------------------//
+// erase control characters for IE und FF - end!                                  //
+//--------------------------------------------------------------------------------//
+
+
+// Submits werden mit CO Funktionalitï¿½t ï¿½berschrieben!!!
+//overrideSubmit();
+

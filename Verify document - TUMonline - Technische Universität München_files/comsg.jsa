@@ -1,0 +1,409 @@
+// MessageBox und MessageLayer
+
+
+
+if(typeof(CO) == "undefined")
+  var CO = Class.create();
+
+CO.MsgList = Class.create(
+{
+  initialize: function(pMsgBox)
+  {    
+    this.mMsgBox = $(pMsgBox);    
+    return(this);
+  },
+  
+  getErrorSymbol: function(pMsg, pType)
+  {    
+    Icon.mIconError.mOptions.alt = pMsg;
+    
+    
+    return(new Element('a', { "class": "errorIconAnchor", "href": "#"}).update(Icon.mIconAttention.get()));
+  },
+  
+  addMsg: function(pMsg, pType, pElement, pOptions, pAnchor)
+  {
+    vTypeBoxes = this.mMsgBox.select("."+pType.mCSSClass);
+    
+    if(isNull(pOptions)) pOptions = {};
+    
+    var vMsgLi = new Element('li', pOptions);
+    
+    vMsgLi.addClassName("message");
+    
+    vOptions = {"href": "#"};
+    
+    if(pElement)
+    { 
+      vOptions["class"] = "cElementMsg";
+      vOptions["onclick"] = "return(false);";
+    }
+    
+    var vMsgA = new Element('a', vOptions);
+    vMsgLi.insert({top: vMsgA});
+    
+    vMsgSpan = new Element('span');
+    vMsgA.insert({top: vMsgSpan});
+    
+    if(typeof(pMsg) == "string")
+      vMsgSpan.update(pType.mPrefix+pMsg);
+    else
+      vMsgSpan.update(pType.mPrefix).insert({bottom: pMsg});
+        
+    
+    vMsgLi.msgClass = pType.mCSSClass;    
+    
+    // Wenn ein Anchor �bergeben worden ist, diesen verwenden...
+    if(!isNull(pAnchor))
+    {      
+      vMsgLi.insert({bottom: pAnchor });
+    }
+    
+    if(!isNull(pElement))
+    {
+      var vGoToText = Text.mMsgLayerGoTo.replace("ELEMENTNAME",pElement.getName()).get();
+      vMsgA.insert({bottom: vGoToText});
+      CO.observe(vMsgA, "click", {},  function(){ try{ pElement.focus(); } catch(exc){} });
+    }
+    
+    vMsgLi.insert({top: vMsgA});
+    
+    vTypeBoxes.each(
+      function(vTypeBox) 
+      {
+        vTypeBox.insert({top: vMsgLi});
+      });
+    
+    if(typeof(this.afterMsgTrigger) != "undefined")
+      this.afterMsgTrigger(vMsgLi);
+
+    return(vMsgLi);
+  }, 
+  
+  remove: function(pMsgs)
+  { 
+    if(typeof(pMsgs) == "string")
+      this.mMsgBox.select(pMsgs).each(function(pMsg){ pMsg.remove(); });
+    
+    if(typeof(pMsgs) == "object")
+    {
+      if(isNull(pMsgs.parentNode)) return;
+      pMsgs.remove();
+    }
+    
+    if(!isNull(CO.msg)) CO.msg.layout();
+  },
+  
+  addFatal:     function(pMsg, pOptions, pAnchor){ return(this.addMsg(pMsg, CO.MsgType.fatal,   null, pOptions, pAnchor)); },
+  addError:     function(pMsg, pOptions, pAnchor){ return(this.addMsg(pMsg, CO.MsgType.error,   null, pOptions, pAnchor)); },
+  addWarning:   function(pMsg, pOptions, pAnchor){ return(this.addMsg(pMsg, CO.MsgType.warning, null, pOptions, pAnchor)); },
+  addInfo:      function(pMsg, pOptions, pAnchor){ return(this.addMsg(pMsg, CO.MsgType.info,    null, pOptions, pAnchor)); }
+});
+
+CO.MsgLayer = Class.create(CO.MsgList, 
+{
+  initialize: function($super, pMsgBox) 
+  {
+    $super(pMsgBox);
+    
+    $(document.body).insert({top: this.mMsgBox});    
+    this.mContentBox  = $("pageContent");
+    this.mOverlayWindows = $$(".overlayWindow");
+    
+    this.mClosedMsgBox = $("idMsgLayerClosed");
+    
+    $(document.body).insert({top: this.mClosedMsgBox});
+    
+    this.mToolShowMinimized = $("idToolMinimize");
+    this.mToolShowMaximized = $("idToolMaximize");
+    
+    this.mShowSummary = false;
+    
+    this.mToolbar = $("idToolbar");
+    
+    this.mToolbarSummary     = $("idToolbarSummary");
+    
+    this.mToolFatalSummary   = $("idToolFatalSummary");
+    this.mToolErrorSummary   = $("idToolErrorSummary");
+    this.mToolWarningSummary = $("idToolWarningSummary");
+    this.mToolInfoSummary    = $("idToolInfoSummary");
+    
+    this.mToolUnClose = $("idToolUnClose");
+    
+    this.mShowClosed = false;
+    this.mShowAll = false;
+    this.mMinMsgs = 3;
+
+    if(this.count() > 0) { this.layout(); }    
+    
+    return(this);    
+  },
+  
+  showMaximized: function() { this.mShowAll = true; this.layout(); },
+  
+  showMinimized: function() { this.mShowAll = false; this.layout(); },
+  
+  focus: function(pWhat)
+  {
+    if(isNull(pWhat))
+      vToFocus = this.mMsgInnerBox.select("a").first();
+    else
+      vToFocus = pWhat.select("a").first();
+    
+    this.unClose();
+    
+    if(vToFocus.up("li").style.display == "none") this.showMaximized();
+    if(vToFocus) vToFocus.focus();
+  },
+  
+  count: function(pSelector)
+  {    
+    if(!isNull(pSelector)) return($$(pSelector).length);
+    return($$("#idMsgLayer li.message").length);
+  },
+
+  close: function(pForce)
+  {
+    this.mMsgBox.style.display = "none";
+    this.mContentBox.style.marginTop = "0em";
+    
+    var vFixed = $$(".puNav");
+    
+    if(!isNull(vFixed[0])) 
+    {
+      if(vFixed[0].style.position == "fixed")
+        vFixed[0].style.marginTop = "0em";
+    }
+    
+    //this.mOverlayWindows = $$(".overlayWindow");
+    //this.mOverlayWindows.each(
+    //  function(pItem)
+    //  {              
+    //    pItem.style.marginTop = pItem.oldHeight;
+    //  });
+    
+    if(!pForce)
+    {
+      this.mShowClosed = true;
+      this.layout();
+    }
+  },
+  
+  clear: function(pForce)
+  {
+	this.remove("li.message");
+	
+    this.mMsgBox.style.display = "none";
+    this.mContentBox.style.marginTop = "0em";
+    
+    var vFixed = $$(".puNav");
+    
+    if(!isNull(vFixed[0])) 
+    {
+      if(vFixed[0].style.position == "fixed")
+        vFixed[0].style.marginTop = "0em";
+    }
+    
+    if(!pForce)
+    {
+      this.mShowClosed = false;
+      this.layout();
+    }
+  },  
+  
+  unClose: function()
+  {
+    if(!this.mShowClosed) return;
+    this.mToolbar.insert({top: this.mToolbarSummary});
+    this.mShowAll = false; this.mShowClosed = false;
+    this.mClosedMsgBox.coHide();
+    this.layout();
+  },
+  
+  existsError: function()
+  {
+    if(this.mMsgBox.select(".msgError a")[0]) return(true);
+    if(this.mMsgBox.select(".msgFatal a")[0]) return(true);
+    return(false);
+  },
+  
+  existsElementError: function()
+  {
+    if(this.mMsgBox.select(".msgError a.cElementMsg")[0]) return(true);
+    if(this.mMsgBox.select(".msgFatal a.cElementMsg")[0]) return(true);
+    return(false);
+  },
+  
+  getSize: function()
+  {
+    if(this.count() == 0) { return(0); }
+    return(this.mMsgBox.offsetHeight);  
+  },
+  
+  layout: function()
+  { 
+    if(this.mShowClosed)
+    {
+      this.mClosedMsgBox.coShow();
+      
+      this.mToolUnClose.style.display = "none";
+      $(document.body).insert({top: this.mToolUnClose}); // unsichtbar wegsichern
+      
+      this.mClosedMsgBox.update(this.mToolbarSummary);
+      this.mClosedMsgBox.insert({bottom: this.mToolUnClose});
+      
+      this.mToolUnClose.style.display = "inline";
+      
+      this.mShowSummary = true;
+      this.updateSummary();
+      return;  
+    }
+    
+    var vCount = this.count();
+    if(vCount == 0) { this.close(true); return;}
+
+    this.mMsgBox.style.display = "block";
+
+    this.mToolShowMaximized.coHide();
+    this.mToolShowMinimized.coHide();
+
+    if(vCount <= this.mMinMsgs) this.mShowAll = false;
+
+    if(this.mShowAll)
+    {
+      if(vCount > this.mMinMsgs) 
+      {
+        this.layoutShowAllInBox();
+        this.mToolShowMinimized.coShow();
+      }
+      else { this.layoutShowAll(); }
+    }
+    else
+    {
+      if(vCount > this.mMinMsgs) { this.mToolShowMaximized.coShow(); }
+      this.layoutMinimized();
+    }
+    
+    if(vCount > this.mMinMsgs) this.mShowSummary = true;
+    else this.mShowSummary = false;
+
+    if(Prototype.Browser.IE6){} 
+    else
+    {          
+      vHeightInEm = Math.floor(CO.Tools.pixelToEm(this.mMsgBox.offsetHeight))+1;
+      
+      var vFixed = $$(".puNav");
+    
+      if(!isNull(vFixed[0]))
+      {        
+        if(vFixed[0].style.position == "fixed")
+          vFixed[0].style.marginTop = (vHeightInEm * 1.1) + "em";
+        else
+          vFixed[0].style.marginTop = "0em";
+      }
+      
+      this.mContentBox.style.marginTop = vHeightInEm + "em";      
+      //this.mOverlayWindows = $$(".overlayWindow");
+      //this.mOverlayWindows.each(
+      //  function(pItem)
+      //  {
+      //    pItem.oldHeight = pItem.getStyle("marginTop");
+      //    pItem.style.marginTop = parseInt(pItem.getStyle("marginTop")) + vHeightInEm + "em";
+      //  });
+      
+    } 
+    
+    this.updateSummary();
+  },
+ 
+  layoutShowAll: function()
+  {
+    if(Prototype.Browser.IE6) { this.layoutShowAllInBox(); return; }
+    
+    this.mMsgBox.style.height = null;
+    $$("#idMsgLayer li.message").each( function(pItem) { pItem.style.display = "block"; } );
+    
+  },
+  
+  layoutShowAllInBox: function()
+  {
+    $$("#idMsgLayer li.message").each( function(pItem) { pItem.style.display = "block"; } );
+    
+    vHeightInEm = CO.Tools.pixelToEm(document.viewport.getHeight()/3);;
+    this.mMsgBox.style.maxHeight =  vHeightInEm + "em";
+    
+    if(Prototype.Browser.IE6) { this.mMsgBox.style.height =  vHeightInEm + "em"; }
+  },  
+  
+  layoutMinimized: function()
+  {
+    this.mMsgBox.style.height = null;
+    
+    var vCounter = 0;
+    var vMinMsgs = this.mMinMsgs;
+    
+    $$("#idMsgLayer li.message").each(
+      function(pItem)
+      {
+        vCounter++;
+        
+        if(vCounter > vMinMsgs)
+        {
+          pItem.style.display = "none";           
+        }
+        else
+        {
+          pItem.style.display = "block";
+        }
+      });
+  },  
+  
+  updateCounter: function(pElement, pCount)
+  {
+    if(pCount > 0)
+    {
+      vImg = pElement.select("img")[0];
+      pElement.innerHTML = "";
+      pElement.insert(vImg);
+      pElement.insert(pCount);
+      pElement.coShow();      
+    }
+    else pElement.coHide();
+  },
+  
+  updateSummary: function()
+  {
+    if(!this.mShowSummary) 
+    {
+      this.mToolbarSummary.coHide();
+      return;
+    }
+
+    this.mToolbarSummary.coShow();
+    
+    this.updateCounter(this.mToolFatalSummary, this.count(".msgFatal li.message"));
+    this.updateCounter(this.mToolErrorSummary, this.count(".msgError li.message"));
+    this.updateCounter(this.mToolWarningSummary, this.count(".msgWarning li.message"));
+    this.updateCounter(this.mToolInfoSummary,this.count(".msgInfo li.message"));
+  },
+  
+  afterMsgTrigger: function(pMsg)
+  {
+    vOldRemove = pMsg.remove;
+    pMsg.removeOld = pMsg.remove;
+    
+    vMsgLayer = this;
+    
+    pMsg.remove = function(){pMsg.removeOld(); window.setTimeout("CO.msg.layout();", 100);};
+    
+    if(pMsg.style.display != "none")
+    {
+      Element.hide(pMsg);
+      new Effect.Appear(pMsg);
+    }
+
+    this.layout();
+    
+    //if($("idOverlayWindow") != null){ $("idOverlayWindow").setStyle({top: (this.getSize()+20)+"px"}); }
+  }
+});

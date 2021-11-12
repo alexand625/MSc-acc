@@ -1,0 +1,14 @@
+//encoding="UTF-8"\\
+
+/*
+    ######### GITLAB REPOSITORY ##########
+    #  https://gitlab.lrz.de/tumonline/  #
+    ######################################
+*/
+var co_loc_dad = document.location.pathname.match(/\/[^\/]+\//)[0];
+
+var snode = document.createElement('script');  
+snode.setAttribute('type','text/javascript');  
+snode.setAttribute('defer','defer');  
+snode.setAttribute('src',co_loc_dad+'co_loc_wbjsinject.main?pPathname='+encodeURI(document.location.pathname));
+document.getElementsByTagName('head')[0].appendChild(snode);  

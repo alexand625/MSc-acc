@@ -1,0 +1,1732 @@
+if(typeof(CO) == "undefined")
+  var CO = Class.create();
+
+CO.Table = Class.create();
+
+CO.Table.getSelectedValues = function(pTable, pName)
+{
+  var vValues = [];
+  $(pTable).select(".selectedRow").each(function(pRow)
+  { 
+    pRow.selectByName(pName).each(function(pItem) 
+    { vValues.push($F(pItem)); });  
+  });
+  return(vValues);
+}
+
+//-- Gibt alle MaskElemente mit dem Namen pName zur�ck
+CO.Table.getRowInputS = function(pRowS, pInputName)
+{
+  if(!Object.isArray(pRowS)) { pRowS = [pRowS]; }
+  
+  if(!pRowS.size()) return([]);
+  
+  var pTable = $(CO._up(pRowS[0], "TABLE", "cotable"))
+
+  var vInputS = null;
+  var vMultiInputNames = false;
+  
+  if(Object.isArray(pInputName))
+  { 
+    vInputS = {}; 
+    vMultiInputNames = true;
+  }
+  else
+  {
+    vInputS = [];
+    vMultiInputNames = false;
+  }
+  
+  var vElemS = $(pTable).up("form").elements;
+
+ 
+  for (var index = 0, len = vElemS.length; index < len; ++index) 
+  {
+    var vElem = vElemS[index];
+   
+    if(!vMultiInputNames && vElem.name && vElem.name == pInputName)
+    {
+      var vTR = CO._up(vElem, "TR", "coRow");
+      
+      if(vTR && pRowS.indexOf(vTR) != -1)
+      {
+        vInputS.push(vElem);
+      }
+    }
+
+    if(vMultiInputNames && vElem.name && pInputName.indexOf(vElem.name) >= 0)
+    {
+      var vTR = CO._up(vElem, "TR", "coRow");
+      
+      if(vTR && pRowS.indexOf(vTR) != -1)
+      {
+        if(!vInputS[vElem.name]) vInputS[vElem.name] = [];
+        vInputS[vElem.name].push(vElem);
+      }
+    }
+    
+  } 
+  
+  return(vInputS);
+}
+
+//--- Gibt die Werte aller MaskElemente mit dem Namen pName zur�ck
+CO.Table.getRowValueS = function(pRow, pInputName)
+{
+  var vRowValueNodeS = CO.Table.getRowInputS(pRow, pInputName);
+    
+  if(!Object.isArray(pInputName))
+  {
+    var vValues = [];
+  
+    for (var index = 0, len = vRowValueNodeS.length; index < len; ++index) 
+    {
+      vValues.push($F(vRowValueNodeS[index]));
+    }
+    
+    return(vValues);
+  }
+  else
+  {
+    var vObject = {};
+    
+    Object.keys(vRowValueNodeS).each(
+      function(pKey)
+      {
+        vObject[pKey] = [];
+        
+        for (var index = 0, len = vRowValueNodeS[pKey].length; index < len; ++index) 
+        {
+          vObject[pKey].push($F(vRowValueNodeS[pKey][index]));
+        }
+      });
+      
+    return(vObject);
+  }
+}
+
+//--- Setzt die Werte aller MaskElemente mit dem Namen pName auf den Wert pValue
+CO.Table.setRowValueS = function(pRow, pInputName, pValue)
+{
+  var vRowValueNodeS = CO.Table.getRowInputS(pRow, pInputName);
+  
+  var vSetMode = null;
+  
+  if(Object.isString(pValue) || Object.isNumber(pValue) || pValue === null || pValue === true || pValue === false)
+  {
+    vSetMode = "S";
+  }
+  else if(Object.isArray(pValue))
+  {
+    vSetMode = "A";
+  }
+  else
+  {
+    vSetMode = "O";
+  }
+  
+  
+  if(!Object.isArray(pInputName))
+  {
+    for (var index = 0, len = vRowValueNodeS.length; index < len; ++index) 
+    {
+      if(vSetMode == "S") { $(vRowValueNodeS[index]).setValue(pValue); }
+      else if(vSetMode == "A") { if(pValue[index]) $(vRowValueNodeS[index]).setValue(pValue[index]); }
+      else if(vSetMode == "O") 
+      { 
+        if(pValue[pInputName])
+        { 
+          if(Object.isArray(pValue[pInputName]))
+          {
+            if(pValue[pInputName][index])
+              $(vRowValueNodeS[index]).setValue(pValue[pInputName][index]);
+          }
+          else
+          {
+            $(vRowValueNodeS[index]).setValue(pValue[pInputName]);  
+          }
+        }
+      }
+    }
+  }
+  else
+  {
+    Object.keys(vRowValueNodeS).each(
+      function(pKey)
+      {
+        for (var index = 0, len = vRowValueNodeS[pKey].length; index < len; ++index) 
+        {
+          if(vSetMode == "S") { $(vRowValueNodeS[pKey][index]).setValue(pValue); }
+          else if(vSetMode == "A") { if(pValue[index]) $(vRowValueNodeS[pKey][index]).setValue(pValue[index]); }
+          else if(vSetMode == "O") 
+          { 
+            if(pValue[pKey])
+            { 
+              if(Object.isArray(pValue[pKey]))
+              {
+                if(pValue[pKey][index])
+                  $(vRowValueNodeS[pKey][index]).setValue(pValue[pKey][index]); 
+              }
+              else
+              {
+                $(vRowValueNodeS[pKey][index]).setValue(pValue[pKey]); 
+              }
+            }
+          }
+        }
+      });
+  }
+}
+
+
+//--------------------------------------------------------------------------------//
+// get unselected Values
+//--------------------------------------------------------------------------------//
+
+CO.Table.getUnselectedValueS = function( pTable, pRowType, pSelected, pInputName )
+{
+  var vUnselectedValueS = new Array();
+  
+  $A(CO.Table.getRowInputS(CO.Table.getRowS(pTable,pRowType,{selected:pSelected}), pInputName))
+    .each(
+    function( pInputElement )
+    {
+      vUnselectedValueS.push(pInputElement.value);
+    }
+  );
+  
+  return vUnselectedValueS;
+}
+
+/*
+  if($(pRow).hasClassName('coTableR'))    return("coTableR");
+  if($(pRow).hasClassName('coTableSUBR')) return("coTableSUBR");
+  if($(pRow).hasClassName('coTableGR1'))  return("coTableGR1");
+  if($(pRow).hasClassName('coTableGR2'))  return("coTableGR2");
+  if($(pRow).hasClassName('coTableSUMR')) return("coTableSUMR");
+*/
+
+//Ermittelt ein Set von COTable Rows
+CO.Table.getRowS = function(pTable, pRowType, pOptions)
+{
+  pTable = $(pTable); if($(pTable).nodeName != "TABLE") pTable = pTable.up("TABLE");
+  
+  if(typeof(pRowType) == "undefined") { pRowType = "coTableR"; }
+  
+  var vRows = [];
+  var vIsSlected = null;
+  var vIsSelectable = null;
+  
+  var pSelectable = null;
+  var pSelected = null;
+  var pSelector = null;
+  var pBelongsToRow = null;
+  
+  if(pOptions)
+  {
+    if(typeof(pOptions.selectable) != "undefined") pSelectable = pOptions.selectable;
+    if(typeof(pOptions.selected)   != "undefined") pSelected   = pOptions.selected;
+    if(typeof(pOptions.selector)   != "undefined") pSelector   = pOptions.selector;
+    if(typeof(pOptions.belongsToRow ) != "undefined") { pBelongsToRow  = pOptions.belongsToRow; pBelongsToRow = $(pBelongsToRow); if($(pBelongsToRow).nodeName != "TR") pBelongsToRow = pBelongsToRow.up("TR"); }
+  }
+  
+  var vBelongsType = "";
+  
+  for (var index = 0, len = pTable.rows.length; index < len; ++index) 
+  {
+    var vItem = pTable.rows[index];
+    
+    if(pBelongsToRow !== null)
+    {
+      if(pBelongsToRow == vItem)
+      {
+        if(CO._hasClassName(vItem, "coTableR"))   { vBelongsType = "coTableR"; }
+        if(CO._hasClassName(vItem, "coTableGR1")) { vBelongsType = "coTableGR1"; }
+        if(CO._hasClassName(vItem, "coTableGR2")) { vBelongsType = "coTableGR2"; }
+      }
+      else
+      {
+        //console.info(vBelongsType);
+        if(vBelongsType == "coTableR"   && !CO._hasClassName(vItem, "coTableSUBR")) vBelongsType = "";
+        if(vBelongsType == "coTableGR2" && (!CO._hasClassName(vItem, "coTableSUBR") && !CO._hasClassName(vItem, "coTableR"))) vBelongsType = "";
+        if(vBelongsType == "coTableGR1" && (!CO._hasClassName(vItem, "coTableSUBR") && !CO._hasClassName(vItem, "coTableR") && !CO._hasClassName(vItem, "coTableGR2"))) vBelongsType = "";
+      }
+        
+      if(vBelongsType == "")
+        continue;
+    }
+    
+    if(pSelected !== null)
+    {
+      if(CO._hasClassName(vItem, "coTableSUBR"))
+      {
+      }
+      else
+      {
+        vIsSlected = false;
+        if(CO._hasClassName(vItem, "selectedRow") || CO._hasClassName(vItem, "selectedGroup")) vIsSlected = true;
+      }
+    }
+    
+    if(pSelectable !== null)
+    {
+      if(CO._hasClassName(vItem, "coTableSUBR"))
+      {
+      }
+      else
+      {
+        vIsSelectable = false;
+        if(CO._hasClassName(vItem, "rowselectable")) vIsSelectable = true;
+      }
+    }
+    
+    if(CO._hasClassName(vItem, pRowType) && vIsSelectable === pSelectable && vIsSlected === pSelected)
+    {
+      if(pSelector)
+      {
+        if(!$(vItem).match(pSelector))
+          continue;
+      }
+
+      vRows.push(vItem);
+    }
+  }
+
+  return(vRows);
+}
+
+
+
+
+
+
+CO._hasClassName = function(element, className) 
+{
+    var elementClassName = element.className;
+    return (elementClassName.length > 0 && (elementClassName == className ||
+      new RegExp("(^|\\s)" + className + "(\\s|$)").test(elementClassName)));
+}
+
+CO._addClassName = function(element, className)
+{
+    if (!CO._hasClassName(element, className))
+      element.className += (element.className ? " " : "") + className;
+    return element;
+},
+
+CO._removeClassName = function(element, className) 
+{
+    element.className = element.className.replace(
+      new RegExp("(^|\\s+)" + className + "(\\s+|$)"), " ").strip();
+    return element;
+}
+
+CO._up = function(pElement, pTag, pClass)
+{
+  var vParent = pElement;
+    
+  while(true)
+  {
+    if(!vParent) return(null);
+    if((!pTag || vParent.tagName == pTag) && (!pClass || CO._hasClassName(vParent, pClass))) return(vParent);
+    vParent = vParent.parentNode;
+  }
+}
+
+CO._observe = function(pElement, pType, pFunction)
+{
+if(window.addEventListener){ pElement.addEventListener(pType, pFunction, false); } 
+else { pElement.attachEvent(pType, pFunction); }
+}
+
+
+CO.Table._getCheckBox = function(pRow)
+{
+  if(pRow.cells[0].childNodes[1] && pRow.cells[0].childNodes[1].tagName == "INPUT")
+    return(pRow.cells[0].childNodes[1]);
+
+  if(pRow.cells[1].childNodes[1] && pRow.cells[1].childNodes[1].tagName == "INPUT")
+    return(pRow.cells[1].childNodes[1]);
+
+  return(null);
+}
+  
+CO.Table._setGrpRowChecked = function(pRow, pBool)
+{
+  if(!pRow) return;
+  
+  var vCheckBox;
+  
+  if(!(vCheckBox = pRow)) return;
+  
+  if(pRow.tagName != "INPUT")
+  {
+    vCheckBox = null;
+    
+    if(!CO._hasClassName(pRow, "rowselectable")) return;
+    
+    vCheckBox = CO.Table._getCheckBox(pRow);
+  }
+
+  if(!vCheckBox) return;
+ 
+  if(pBool == null) return(vCheckBox.checked);
+
+  var vGRow = CO._up(vCheckBox, "TR", "coRow");
+ 
+  if( pBool ) 
+  {
+    vCheckBox.checked = true;
+    if(vGRow){ CO._addClassName(vGRow, "selectedRow"); }
+  }
+  else
+  {
+    vCheckBox.checked = false;
+    if(vGRow){ CO._removeClassName(vGRow, "selectedRow"); }
+  }
+  
+  return(vCheckBox.checked); 
+}
+
+
+/* Zeichnet Tabelle neu */  
+CO.Table.redraw = function(pTable)
+{
+  if (!(pTable = $(pTable))) return;
+  
+  var vActGrp1 = null;
+  var vActGrp2 = null;
+  var vAllCheckedGrp1 = null;
+  var vAllCheckedGrp2 = null;
+  var vAllSelected = null;
+  var vNonSelected = true;
+  var vRowColor = "z1";
+  var vDRSelected = false;
+  
+  for (var index = 0, len = pTable.rows.length; index < len; ++index) 
+  {
+   var pRow = pTable.rows[index];
+  
+   if(CO._hasClassName(pRow,"coTableGR1") || index == len-1)
+   { 
+     CO.Table._setGrpRowChecked(vActGrp1, vAllCheckedGrp1 == true);
+     CO.Table._setGrpRowChecked(vActGrp2, vAllCheckedGrp2 == true);
+     
+     vActGrp1 = pRow;
+     vActGrp2 = null;
+     vAllCheckedGrp1 = null;
+     vAllCheckedGrp2 = null;
+   }
+  
+   if(CO._hasClassName(pRow,"coTableGR2") || index == len-1)
+   {
+     CO.Table._setGrpRowChecked(vActGrp2, vAllCheckedGrp2 == true);
+  
+     vActGrp2 = pRow;
+     vAllCheckedGrp2 = null;
+   }
+  
+   if(CO._hasClassName(pRow,"coTableSUBR"))
+   {
+     if(CO._hasClassName(pRow, "selectedRow"))
+     {
+       if(!vDRSelected) CO._removeClassName(pRow, "selectedRow");
+     }
+     else
+     {
+       if(vDRSelected) CO._addClassName(pRow, "selectedRow");
+     }
+   
+     if(!CO._hasClassName(pRow, vRowColor))
+     {
+       CO._removeClassName(pRow, "z0");
+       CO._removeClassName(pRow, "z1");
+       CO._addClassName(pRow, vRowColor);
+     }
+   }
+  
+   if(CO._hasClassName(pRow,"coTableR"))
+   {
+     if(vRowColor == "z0") vRowColor = "z1"; else vRowColor = "z0";
+     
+     var vSelBox = CO.Table._getCheckBox(pRow);
+   
+     if(CO._hasClassName(pRow,"selectedRow"))
+     {
+       vDRSelected = true;
+       if(vAllCheckedGrp1 !== false) vAllCheckedGrp1 = true;
+       if(vAllCheckedGrp2 !== false) vAllCheckedGrp2 = true;
+       if(vAllSelected !== false) vAllSelected = true;
+       vNonSelected = false;
+     }
+     else
+     {
+	   if( (CO._hasClassName(pRow,"rowselectable") && vSelBox && !vSelBox.disabled) || !CO._hasClassName(pRow,"rowselectable") )
+	   {
+	     vDRSelected = false;
+	   };
+
+	   if(CO._hasClassName(pRow,"rowselectable") && vSelBox && !vSelBox.disabled )
+       {
+         vAllCheckedGrp1 = false;
+         vAllCheckedGrp2 = false;
+         vAllSelected = false;
+       };
+     }
+     
+     if(!CO._hasClassName(pRow, vRowColor))
+     {
+       CO._removeClassName(pRow, "z0");
+       CO._removeClassName(pRow, "z1");
+       CO._addClassName(pRow, vRowColor);
+     }
+     
+   } 
+  }
+  
+  if(vAllSelected)
+  {
+    CO.Table._setGrpRowChecked($(pTable.id+"SelAllHeader"), true);
+    CO.Table._setGrpRowChecked($(pTable.id+"SelAllFooter"), true);
+  }
+  else
+  {
+    CO.Table._setGrpRowChecked($(pTable.id+"SelAllHeader"), false);
+    CO.Table._setGrpRowChecked($(pTable.id+"SelAllFooter"), false);
+  }
+  
+  return({all: vAllSelected, none: vNonSelected, any: !vNonSelected});
+}
+
+
+
+
+CO.Table._focusNextByName = function(pMask, pInput)
+{
+  if(!pMask[pInput.name]) return;
+  
+  var vFound = false;
+  
+  for (var index = 0, len = pMask[pInput.name].length; index < len; ++index) 
+  {
+    if(vFound)
+    {
+      pMask[pInput.name][index].focus();
+      return;
+    }
+    
+    if(pInput == pMask[pInput.name][index])
+    {
+      vFound = true;
+    }
+  }
+}
+
+CO.Table._focusPreviousByName = function(pMask, pInput)
+{
+  if(!pMask[pInput.name]) return;
+
+  var vFound = false;
+  
+  for (var index = pMask[pInput.name].length, len = 0; index >= 0; --index) 
+  {
+    if(vFound)
+    {
+      pMask[pInput.name][index].focus();
+      return;
+    }
+    
+    if(pInput == pMask[pInput.name][index])
+    {
+      vFound = true;
+    }
+  }
+}
+
+
+
+
+
+CO.Table.focus = function(pRow)
+{
+  CO.Table.getRowOf($(pRow)).first("a").focus();
+}
+
+CO.Table._focusRow = function(pTable, pRowAnchorId)
+{
+  if(!$(pRowAnchorId) || !$(pTable)) return;
+  pTable = $(pTable);
+
+  var vFocusedRow = $(pRowAnchorId);
+  var vSelBox = $(pTable).id + "Sel";
+  
+  CO.Table.focusRow(vFocusedRow); 
+  
+  if($(vSelBox)) { $(vSelBox).setValue($CO(pTable).co.mPageNr+"#"+vFocusedRow.id); }
+}
+
+CO.Table.init = function(pTable, pOptions)
+{
+  // var currentTime = new Date();
+
+  if(!$(pTable)){ return; }
+  
+  if(!$CO(pTable).co.init)
+  {
+  // -- Beim Laden die Row anspringen
+  if(location.hash.substr(1,8) == "coTblIdx") { Event.observe(window, "load", function(){ pIndex = $(location.hash.substr(1)); CO.Table._focusRow(pTable,  pIndex); CO.Tools.scrollTo( pIndex ); }); }
+
+
+  // -- Event Delegation von RowClicks
+  $(pTable).observe('click', 
+  function(event) 
+  {
+    var clickedRow = event.findElement('.rowselect');
+    if(clickedRow) { CO.Table.toggleSelect(clickedRow, $CO(pTable).co.multiple); }
+  });
+  
+
+  // -- Event Delegation von RegGridMode
+  if($(pTable).mRegGridMode)
+  {
+    $(pTable).up("form").observe("keydown", 
+    function(event)
+    {
+      if(event.keyCode == Event.KEY_RETURN)
+      {
+        var vInput = event.findElement();
+        
+        if(vInput.tagName == "TEXTAREA") return;
+        
+        if(vInput.name && $(pTable).mRegGridMode.indexOf(vInput.name))
+        {
+          if(event.shiftKey)
+          {
+            CO.Table._focusPreviousByName(this, vInput); Event.stop(event);                    
+          }
+          else
+          {
+            CO.Table._focusNextByName(this, vInput); Event.stop(event);
+          }
+        }
+      }
+    });
+  }
+  }
+  
+  // -- jetzt sind die globalen Table Events initialisiert
+  $CO(pTable).co.init = true;
+  
+  // -- nonbubbling Events m�ssen immer wieder initialisiert werden
+  CO.Table._initNonBubblingEvents(pTable);
+
+  // $("pageContent").insert({top: "time: "+(new Date() - currentTime)});
+}
+
+
+CO.Table._initNonBubblingEvents = function(pTable)
+{
+  if(!$(pTable)) return;
+  
+  var vRegGridMode = $(pTable).mRegGridMode;
+  var vRegEditMode = $(pTable).mRegEditMode;
+  
+  if(!vRegGridMode && !vRegEditMode) return;
+  
+  var vElemS = $(pTable).up("form").elements;
+  var vEventListener = window.addEventListener;
+ 
+  for (var index = 0, len = vElemS.length; index < len; ++index) 
+  {
+    var vElem = vElemS[index];
+    
+    if(vElem.coTableInited) continue;
+
+    if(vEventListener)
+    {
+      if(vRegEditMode && vElem.name && vRegEditMode.indexOf(vElem.name) >= 0)
+      {
+        vElem.addEventListener("change", function(){CO.Table.setChangedRow(this);}, false);
+        vElem.coTableInited = true;
+      }
+
+      if(vRegGridMode && vElem.name && vRegGridMode.indexOf(vElem.name) >= 0)
+      {
+        vElem.addEventListener("focus", function(){CO.Table.focusRow(this);}, false);
+        vElem.addEventListener("blur", function(){CO.Table.blurRow(this);}, false);
+        vElem.coTableInited = true;
+      }
+    }
+    else
+    {
+      if(vRegEditMode && vElem.name && vRegEditMode.indexOf(vElem.name) >= 0)
+      {
+        vElem.attachEvent("onchange", function(event){ CO.Table.setChangedRow(event.srcElement);});
+        vElem.coTableInited = true;
+      }
+
+      if(vRegGridMode && vElem.name && vRegGridMode.indexOf(vElem.name) >= 0)
+      {
+        vElem.attachEvent("onfocus", function(event){ CO.Table.focusRow(event.srcElement);});
+        vElem.attachEvent("onblur", function(event){ CO.Table.blurRow(event.srcElement);});
+        vElem.coTableInited = true;
+      }
+    }
+  }  
+}
+
+
+
+
+CO.Table.regGridMode = function(pTable, pInputName)
+{
+  if(!$(pTable).mRegGridMode) { $(pTable).mRegGridMode = []; }
+  $(pTable).mRegGridMode.push(pInputName);
+}
+
+CO.Table.regEditMode = function(pTable, pInputName)
+{
+  if(!$(pTable).mRegEditMode) { $(pTable).mRegEditMode = []; }
+  $(pTable).mRegEditMode.push(pInputName);
+}
+
+CO.Table.getSelected = function(pTable)
+{
+  var pTable = $(pTable);
+  var vArray = [];
+  var vValue = null;
+  var vRadio = null;
+  
+  $(pTable).select("input.rowbox").each(
+    function(pItem)
+    { 
+      
+      var vType = pItem.getAttribute("type");
+      
+      if(vType == "radio"){ if(pItem.checked) { vRadio = true; vValue = pItem.value; } }
+      if(vType == "checkbox"){ if(pItem.checked) { vArray.push(pItem.value); } }
+    });
+   
+  if(vRadio != null) return(vValue);
+  return(vArray);
+}
+
+
+
+CO.Table.getRowType = function(pRow)
+{
+  if($(pRow).nodeName != "TR") pRow = pRow.up("TR");
+  
+  if($(pRow).hasClassName('coTableR'))    return("coTableR");
+  if($(pRow).hasClassName('coTableSUBR')) return("coTableSUBR");
+  if($(pRow).hasClassName('coTableGR1'))  return("coTableGR1");
+  if($(pRow).hasClassName('coTableGR2'))  return("coTableGR2");
+  if($(pRow).hasClassName('coTableSUMR')) return("coTableSUMR");
+}
+
+CO.Table.unSelectAll = function(pTable)
+{ 
+  CO.Table.toggleSelectAll(pTable, false);
+}
+
+
+CO.Table.invertSelection = function(pTable)
+{ 
+  var vTable = $(CO._up(pTable, "TABLE", "cotable"));
+
+  for (var index = 0, len = vTable.rows.length; index < len; ++index) 
+  {
+    CO.Table.toggleSelect(vTable.rows[index], true, !CO._hasClassName(vTable.rows[index], "selectedRow"), false);
+  }
+
+  vTable.fire("cotable:update");  
+}
+
+CO.Table.toggleSelectAll = function(pRow, pSelected)
+{
+  var vTable = $(CO._up(pRow, "TABLE", "cotable"));
+  
+  if(typeof(pSelected) == "undefined")
+  { 
+    if( $(vTable.id + "SelAllHeader") )
+      pSelected = $(vTable.id + "SelAllHeader").checked; 
+
+    if( $(vTable.id + "SelAllFooter") )
+      pSelected = $(vTable.id + "SelAllFooter").checked;     
+  }
+
+  if(vTable.hasClassName('tablescroll_head') || vTable.hasClassName('tablescroll_foot') )
+  {
+    var vSrollTable = $(CO._up(vTable, "DIV", "tablescroll")).down("div.tablescroll_wrapper").down("table.cotable");
+//    console.info(vSrollTable);
+    for (var index = 0, len = vSrollTable.rows.length; index < len; ++index) 
+    {
+      CO.Table.toggleSelect(vSrollTable.rows[index], true, pSelected, false);
+    }  
+  }
+  else
+  { 
+     //console.info(vTable.rows);
+    for (var index = 0, len = vTable.rows.length; index < len; ++index) 
+    {
+      /*console.info(vTable.rows[index]);*/
+      CO.Table.toggleSelect(vTable.rows[index], true, pSelected, false);
+    }
+  }
+
+  vTable.fire("cotable:update");
+}
+
+CO.Table.toggleSelectGrp = function(pRow, pSelected)
+{
+  var vTable = $(CO._up(pRow, "TABLE", "cotable"));
+  var vRow = CO.Table.getRowOf(pRow);
+  var vRowType = CO.Table.getRowType(vRow);
+  
+  if(typeof(pSelected) == "undefined")
+  { pSelected = CO.Table._setGrpRowChecked(pRow, pSelected, null); }
+  
+  if(vRowType == "coTableGR1")
+  {
+    for (var index = vRow.rowIndex+1, len = vTable.rows.length; index < len; ++index) 
+    {
+      var vRowTmp = vTable.rows[index];
+      
+      if(CO._hasClassName(vRowTmp, "coTableGR1")) break;
+      
+      if(CO._hasClassName(vRowTmp, "coTableR"))
+        CO.Table.toggleSelect(vRowTmp, true, pSelected, false);
+    }  
+  }
+
+  if(vRowType == "coTableGR2")
+  {
+    for (var index = vRow.rowIndex+1, len = vTable.rows.length; index < len; ++index) 
+    {
+      var vRowTmp = vTable.rows[index];
+      
+      if((CO._hasClassName(vRowTmp, "coTableGR1")) || (CO._hasClassName(vRowTmp, "coTableGR2"))) break;
+      
+      if(CO._hasClassName(vRowTmp, "coTableR"))
+        CO.Table.toggleSelect(vRowTmp, true, pSelected, false);
+    }  
+  }
+
+  vRow.fire("cotable:update");
+}
+
+  
+CO.Table.toggleSelect = function(pRow, pMulti, pSelected, pFireUpdate)
+{
+  if(typeof(pMulti) == "undefined") pMulti = true;
+  if(typeof(pFireUpdate) == "undefined") pFireUpdate = true;
+
+  if(!pMulti)
+  {
+    var vTable = CO._up(pRow, "TABLE", "cotable");
+
+    for (var index = 0, len = vTable.rows.length; index < len; ++index) 
+    {
+      CO._removeClassName(vTable.rows[index], "selectedRow");
+      var vXRow = vTable.rows[index];
+    }
+  }
+  
+  if(pRow.nodeName != "TR") pRow = CO.Table.getRowOf(pRow);
+
+  if(!CO._hasClassName(pRow, "coTableR")) return;
+
+  var vSelBox = CO.Table._getCheckBox(pRow);
+
+  if(!vSelBox) return;
+  
+  if( vSelBox.disabled ) return;
+
+  if(typeof(pSelected) == "undefined") { pSelected = !CO._hasClassName(pRow, "selectedRow"); }
+
+
+  if(vSelBox.checked != pSelected)
+  {
+    vSelBox.checked = pSelected;
+    if(vSelBox.onclick) vSelBox.onclick();    
+    if(vSelBox.onchange) vSelBox.onchange();
+  }
+
+  if(pSelected)
+    CO._addClassName(pRow, "selectedRow");
+  else
+    CO._removeClassName(pRow, "selectedRow");
+
+  
+ 
+  if(pFireUpdate){ pRow.fire("cotable:update") };
+}
+
+
+
+
+CO.Table.isAnySelected = function(pTable)
+{
+  return(CO.Table.redraw(pTable).any);
+}
+
+CO.Table.handleSelect = function(pTable,pAny,pNone,pAll)
+{
+  if(!$(pTable)) return;
+
+  var vStatus = CO.Table.redraw(pTable);
+
+  if(pAny  && vStatus.any)  pAny.call(pTable);
+  if(pNone && vStatus.none) pNone.call(pTable);
+  if(pAll  && vStatus.all)  pAll.call(pTable);
+}
+
+
+CO.Table.getRowOf = function(pElement)
+{
+  return($(CO._up(pElement, "TR", "coRow")));
+}
+
+CO.Table.focusRow = function(pElement)
+{
+  CO.Table.getRowOf(pElement).addClassName("focusedRow");
+}
+
+CO.Table.blurRow = function(pElement)
+{
+  CO.Table.getRowOf(pElement).removeClassName("focusedRow");
+}
+
+CO.Table.setChangedRow = function(pElement)
+{
+  CO.Table.getRowOf(pElement).addClassName("changedRow");  
+}
+
+CO.Table.setChangedAllRowS = function(pElement)
+{
+  CO.Table.getRowS($(pElement), "coTableR").each(function(pRow){ CO.Table.setChangedRow(pRow); });
+}
+
+CO.Table.focusNext = function(pElement, pSelector)
+{
+  vFound = null;
+  
+  while(pElement = CO.Table.getRowOf(pElement).next())
+  {
+    pElement.select(pSelector).each(function(pItem){vFound = pItem;});
+    if(vFound != null){ vFound.focus(); return(vFound); }
+  }
+}
+
+CO.Table.focusNextByName = function(pElement, pName)
+{
+ 
+  vFound = null;
+  
+  while(pElement = CO.Table.getRowOf(pElement).next())
+  {
+    pElement.coGetElementsByName(pName).each(function(pItem){vFound = pItem;});
+    if(vFound != null){ vFound.focus(); return(vFound); }
+  }
+}
+
+CO.Table.focusPrevious = function(pElement, pSelector)
+{
+  vFound = null;
+  
+  while(pElement = CO.Table.getRowOf(pElement).previous())
+  {
+    pElement.select(pSelector).each(function(pItem){vFound = pItem;});
+    if(vFound != null){ vFound.focus(); return(vFound); }
+  }
+}
+
+CO.Table.focusPreviousByName = function(pElement, pName)
+{
+  vFound = null;
+  
+  while(pElement = CO.Table.getRowOf(pElement).previous())
+  {
+    pElement.coGetElementsByName(pName).each(function(pItem){vFound = pItem;});
+    if(vFound != null){ vFound.focus(); return(vFound); }
+  }
+}
+
+CO.Table.setSaved = function(pTable)
+{
+  vFinished = false;  
+  
+  if( !$(pTable) || !$CO(pTable).co.mCBSaveUrlOptions )
+  {
+    return;
+  }
+  
+  if ( $CO(pTable).co.mCBSaveUrlOptions.mOverRuleSelected )
+  {
+    pTable.select(".changedRow").each( function(pItem) { pItem.removeClassName("changedRow"); vFinished = true; });
+  }
+  else
+  {
+    pTable.select(".changedRow.selectedRow").each( function(pItem) { pItem.removeClassName("changedRow"); vFinished = true; });
+  }    
+  if(vFinished) return;
+  pTable.select(".changedRow").each( function(pItem) { pItem.removeClassName("changedRow"); });
+}
+
+CO.Table.isChanged = function(pTable)
+{
+  if(pTable.select(".changedRow").size()){ return(true); }
+  return(false);
+}
+
+CO.Table.reload = function(pTable)
+{
+  CO.Table.goTo($(pTable));
+}
+
+CO.Table.goTo = function(pTable, pPageNr, pIndex, pSave, pSort, pFilter)
+{
+  if(pIndex == "") pIndex = null;
+  
+  var scrollToIndex = function()
+  { 
+    if(!isNull(pIndex))
+    { 
+      vDest = $(pTable).coGetElementsByName(pIndex)[0]; 
+      if(!isNull($(vDest))) { CO.Tools.scrollTo(vDest); return(true); } 
+    }
+    
+    return(false);
+  };
+  
+  if(scrollToIndex()) { return; }
+  
+  if(CO.Table.isChanged(pTable))
+  {
+    if(nvl(pSave,true))
+    {
+      if(CO.Table.save(pTable, {mOnSaveSuccess: function(){ CO.Table.setSaved(pTable); CO.Table.goTo(pTable, pPageNr, pIndex, false);} })) { return; }    
+    }
+    else return;
+  }
+  
+  
+  if(pTable.co.mTableUrlJSId)
+  {
+    var vTableUrl = CO.Url.get(pTable, pTable.co.mTableUrlJSId);
+    
+    if(false === pPageNr){ vTableUrl.delParam(pTable.co.mPageParamName); }
+    if(false === pSort)  { vTableUrl.delParam(pTable.co.mSortParamName); }
+    if(false === pFilter){ vTableUrl.delParam(pTable.co.mFilterParamName); }
+    
+    if(pPageNr){ vTableUrl.setParam(pTable.co.mPageParamName, pPageNr); }
+    if(pSort)  { vTableUrl.setParam(pTable.co.mSortParamName, pSort); }
+    if(pFilter){ vTableUrl.setParam(pTable.co.mFilterParamName, pFilter); }
+    
+    // neue Implementierung
+    if(pTable.co.mCallbackMode)
+    {
+      if(pIndex) vTableUrl.mOptions.onCustomComplete = function(){ CO.Table._focusRow(pTable.id, pIndex); CO.Tools.scrollTo( pIndex ); CO.Page.enable(); };
+      vTableUrl.callback(pTable);      
+    }
+    else
+    {
+      CO.Page.loadUrl(vTableUrl.setHash(pIndex));
+    }
+    
+    return;
+  }
+  else
+  {
+    if(pTable.co.mCallbackMode)
+    {     
+      if(pIndex) pTable.co.mPagingCBUrl.mOptions.onCustomComplete = function(){ CO.Table._focusRow(pTable.id, pIndex); CO.Tools.scrollTo( pIndex ); CO.Page.enable(); };
+      pTable.co.mPagingCBUrl.setParam(pTable.co.mParamName, pPageNr).callback(pTable);
+    }
+    else
+    { 
+      CO.Page.loadUrl(pTable.co.mPagingUrl.setHash(pIndex).setParam(pTable.co.mParamName, pPageNr));
+    }
+  }  
+}
+
+CO.Table._serializeInputS = function(pTable, pInputNames, pOnlyChanged)
+{
+  if(!$(pTable) || !pInputNames) return({});
+ 
+  var vInputS = {};
+  
+  var vElemS = $(pTable).up("form").elements;
+
+ 
+  for (var index = 0, len = vElemS.length; index < len; ++index) 
+  {
+    var vElem = vElemS[index];
+   
+    if(vElem.name && pInputNames.indexOf(vElem.name) >= 0)
+    {
+      var vTR = CO._up(vElem, "TR", "coRow");
+      
+      if(vTR && (!pOnlyChanged || CO._hasClassName(vTR, "changedRow") ))
+      {
+        if(!vInputS[vElem.name]) vInputS[vElem.name] = [];
+        vInputS[vElem.name].push($F(vElem));
+      }
+    }
+    
+  } 
+  
+  return(vInputS);
+}
+
+// fixxme: durch die $ Operationen war die IE Performance katastrophal
+// Anpassen von comaskjs.jsa n�tig
+CO.Table._validate = function( pMaskId )
+{
+  var vValidators = gVC.getValidatorsForMaskId( pMaskId );
+  var vIsValid    = true;
+
+  for ( var idx = 0; idx < vValidators.length; idx++ )
+  {
+    var vValidator = vValidators[ idx ];
+    
+
+    // wenn das element nicht sichbar ist, dann wird nich validiert
+    // if ( $( vValidator.getHtmlInputId() ).hasClassName( "invisible" ) )
+    
+    var vElem = document.getElementById(vValidator.getHtmlInputId());
+    
+    if( CO._hasClassName(vElem, "invisible") )
+      continue;
+      
+    // wenn sich das element in einem Contaienr befindet, der nicht sichbar ist, dann wird auch nicht validiert
+    if( CO._up(vElem, "invisible") )
+      continue;
+
+    if ( !vValidator.validate() )
+      vIsValid = false;
+  }
+  
+  return( vIsValid );
+}
+
+
+CO.Table.save = function(pTable, pOptions)
+{
+  pTable = $(pTable);
+  
+  vDefaultOptions = 
+    {
+        mAskUser : false
+      , mOverRuleSelected : false
+      , mOnlyChanged  : true
+      , mOnSave: function(){ CO.Page.disable(); }      
+      , mOnSaveSuccess: function(){ CO.Table.setSaved(pTable); }
+      , mOnSaveFailure: function(){}
+      , mOnComplete : function(){ CO.Page.enable(); }
+    };
+
+  pOptions = Object.extend(vDefaultOptions, pOptions);
+
+  if(pOptions.mOnlyChanged && !CO.Table.isChanged(pTable))
+  {
+    CO.msg.addInfo("Es wurden keine Datens&aumltze ver&aumlndert");
+    
+    if(!isNull(pOptions))
+      if(!isNull(pOptions.mOnSaveSuccess))      
+        pOptions.mOnSaveSuccess.call(this);
+        
+    return(false);
+  }
+  
+  var vForm = pTable.up("form");
+  
+  if(vForm)
+  {
+    if( ! CO.Table._validate(vForm.id) )
+      return;
+  }
+  
+  // ist glaub ich nicht notwendig, zur Sicherheit drinnen
+  if($CO(pTable).co.mCBSaveUrlOptions)
+    $CO(pTable).co.mCBSaveUrlOptions.mOverRuleSelected = pOptions.mOverRuleSelected;
+  
+  var vDoSave = true;
+  var vAnySelecte = CO.Table.isAnySelected(pTable);
+  
+  if(!vAnySelecte)
+  {
+    if(pOptions.mAskUser)
+      vDoSave = confirm("Wollen Sie speichern?");
+  }
+ 
+  if(vDoSave)
+  {
+    if(pOptions.mAskUser && vAnySelecte && pOptions.mOverRuleSelected == false )
+      vDoSave = confirm("Nur ausgew&aumlhlte Eintr&aumlge speichern?");
+  }
+ 
+  if(vDoSave)
+  {
+    var vSelectedClass = "";
+    
+    if(vAnySelecte && pOptions.mOverRuleSelected == false) vSelectedClass = ".selectedRow";
+    
+    var vNotChanged = false;
+    
+    var vParams = {};
+    var vSize = null;
+    var vOldSize = null;
+    
+    //--mOverRuleChanged
+    vParams = CO.Table._serializeInputS(pTable, $CO(pTable).co.mSaveNames, pOptions.mOnlyChanged );
+    
+
+    $CO(pTable).co.mSaveNames.each(
+      function(pItem)
+      {
+        if(!vParams[pItem]) { vNotChanged = true; return; }
+        
+        vSize = vParams[pItem].size();
+
+        if((vOldSize != null) && (vSize != vOldSize))
+        {
+          CO.msg.addFatal("Unterschiedlich Anzahl an zu speichernden Elementen bei " + pItem + ' (' + vSize + ' sollte: ' + vOldSize + ')');
+          vNotChanged = true;
+        }
+        
+        vOldSize = vSize;
+
+        if(vSize == 0) vNotChanged = true;
+      });
+    
+    if(vNotChanged) 
+    {
+      CO.msg.addInfo("Es wurden keine Datens&aumltze ver&aumlndert");
+      return(false);
+    }
+    
+    var vSaveUrl = null;
+    var vOptions = null;
+    
+    if( $CO(pTable).co.mTableSaveUrlJSId )
+    {
+      var vSaveUrlTemp = CO.Url.get($CO(pTable), pTable.co.mTableSaveUrlJSId);
+
+      // Wenn der IE Rendermodus der Maskaction aktiv, 
+      // muss diese aus einem input type hidden ausgelesen werden      
+      var vForm = $CO(pTable).up("form");
+      
+      if(vForm.pMaskAction && vForm.pMaskAction.type == "hidden")
+      {
+        vSaveUrlTemp.setParam("pMaskAction", vForm.pMaskAction.value);
+      }
+      
+      vOptions = vSaveUrlTemp.getOptions();
+      $CO(pTable).co.mCBSaveUrlOptions = vOptions;
+      vSaveUrl = vSaveUrlTemp.getBase();
+    }
+    else
+    {
+      vSaveUrl = $CO(pTable).co.mSaveUrl;
+    
+      if(!isNull($CO(pTable).co.mCBSaveUrl))
+        vSaveUrl = $CO(pTable).co.mCBSaveUrl;
+
+      var vOptions = Object.clone($CO(pTable).co.mCBSaveUrlOptions);
+      if(isNull(vOptions)) { vOptions = {}; }
+    }
+    
+    
+    
+    vOptions.method = "POST";
+    
+    if(vOptions.parameters) { vOptions.parameters = Object.extend(vOptions.parameters, vParams); }
+    else { vOptions.parameters = vParams; }
+    
+    if(vOptions.onCustomCreate) { vOptions.onCustomCreate = CO.Tools.joinFunc(vOptions.onCustomCreate, pOptions.mOnSave); }
+    else vOptions.onCustomCreate = pOptions.mOnSave;
+  
+  
+    var vThisPointer = $(this);
+  
+    var vOnCompleteFunc = 
+      function()
+      { 
+        if(CO.msg.existsError())
+        {
+          pOptions.mOnSaveFailure.call( $(vThisPointer) ); 
+        }
+        else
+        {
+          pOptions.mOnSaveSuccess.call( $(vThisPointer) ); 
+        }
+         
+        pOptions.mOnComplete.call( $(vThisPointer) ); 
+      };
+  
+    if(vOptions.onCustomComplete) { vOptions.onCustomComplete = CO.Tools.joinFunc(vOptions.onCustomComplete, vOnCompleteFunc); }
+    else vOptions.onCustomComplete = vOnCompleteFunc;
+
+    vOptions.cbCaller = $(pTable);
+    $(pTable).callback(vSaveUrl, vOptions);
+    
+    
+    return(true);
+  }
+  else { return(false); }
+}
+
+CO.Table.moveRowUp = function(element)
+{
+  vSrcRow = $(element); if(element.tagName != "TR") { vSrcRow = element.up("TR"); }
+  vDestRow = vSrcRow.previous(); if(!isNull(vDestRow)){ vDestRow.insert({before: vSrcRow}); } 
+  CO.Page.fixMasks();
+  vSrcRow.highlight({afterFinish: function(effect){ effect.element.style.backgroundColor = ""; }});
+}
+
+CO.Table.moveRowDown = function(element)
+{ 
+  vSrcRow = $(element); if(element.tagName != "TR") { vSrcRow = element.up("TR"); }
+  vDestRow = vSrcRow.next(); if(!isNull(vDestRow)){ vDestRow.insert({after: vSrcRow}); } 
+  CO.Page.fixMasks();
+  vSrcRow.highlight({afterFinish: function(effect){ effect.element.style.backgroundColor = ""; }}); 
+}
+
+CO.Table.setSortable = function(pTable)
+{  
+  var tableDnD = new TableDnD();
+  tableDnD.init($(pTable));
+}
+
+// WWW: http://www.isocra.com/
+
+
+var currenttable = null;
+
+function initDragDropRows()
+{
+CO.observe(document, "mousemove", {}, 
+function(ev)
+{
+  if (currenttable && currenttable.dragObject) 
+  {
+    ev   = ev || window.event;
+    var mousePos = currenttable.mouseCoords(ev);
+    var y = mousePos.y - currenttable.mouseOffset.y;
+    if (y != currenttable.oldY) 
+    {
+      //-- work out if we're going up or down...
+      var movingDown = y > currenttable.oldY;
+      //-- update the old value
+      currenttable.oldY = y;
+      //-- update the style to show we're dragging
+      //--currenttable.dragObject.style.backgroundColor = "#eee";
+      $(currenttable.dragObject).addClassName("draggedRow");
+      CO.Page.fixMasks();
+      
+      //-- If were over a row then move the dragged row to there so that the user sees the
+      //-- effect dynamically
+      var currentRow = currenttable.findDropTargetRow(y);
+      if (currentRow) 
+      {
+        if (movingDown && currenttable.dragObject != currentRow) 
+        {
+          currenttable.dragObject.parentNode.insertBefore(currenttable.dragObject, currentRow.nextSibling);
+        } else if (! movingDown && currenttable.dragObject != currentRow) 
+        {
+          currenttable.dragObject.parentNode.insertBefore(currenttable.dragObject, currentRow);
+        }
+        
+        if( CO._hasClassName(currenttable.table, "cotable") )
+          CO.Table.setChangedAllRowS(currenttable.table);  
+      }
+    }
+
+    return false;
+  }
+});
+
+CO.observe(document, "mouseup", {}, 
+function(ev)
+{
+  if (currenttable && currenttable.dragObject) 
+  {
+    var droppedRow = currenttable.dragObject;
+    //-- If we have a dragObject, then we need to release it,
+    //-- The row will already have been moved to the right place so we just reset stuff
+    //-- droppedRow.style.backgroundColor = 'transparent';
+    
+    $(droppedRow).removeClassName("draggedRow");
+    CO.Page.fixMasks();
+    
+    currenttable.dragObject   = null;
+    //-- And then call the onDrop method in case anyone wants to do any post processing
+    currenttable.onDrop(currenttable.table, droppedRow);
+    currenttable = null; // let go of the table too
+  }
+});
+
+  self.initDragDropRows = function(){}
+}
+
+
+function getEventSource(evt) 
+{
+  if (window.event) 
+  {
+      evt = window.event; // For IE
+      return evt.srcElement;
+  }
+  else 
+  {
+    return evt.target; // For Firefox
+  }
+}
+
+function TableDnD() {
+    /** Keep hold of the current drag object if any */
+    this.dragObject = null;
+    /** The current mouse offset */
+    this.mouseOffset = null;
+    /** The current table */
+    this.table = null;
+    /** Remember the old value of Y so that we don't do too much processing */
+    this.oldY = 0;
+
+    /** Initialise the drag and drop by capturing mouse move events */
+    this.init = function(table) {
+        initDragDropRows();
+        this.table = table;
+        var rows = table.tBodies[0].rows; //getElementsByTagName("tr")
+        for (var i=0; i<rows.length; i++) {
+      // John Tarr: added to ignore rows that I've added the NoDnD attribute to (Category and Header rows)
+      var nodrag = rows[i].getAttribute("NoDrag")
+      if (nodrag == null || nodrag == "undefined") { //There is no NoDnD attribute on rows I want to drag
+        this.makeDraggable(rows[i]);
+      }
+        }
+    }
+
+    /** This function is called when you drop a row, so redefine it in your code
+        to do whatever you want, for example use Ajax to update the server */
+    this.onDrop = function(table, droppedRow) {
+        // Do nothing for now
+    }
+
+  /** Get the position of an element by going up the DOM tree and adding up all the offsets */
+    this.getPosition = function(e){
+        var left = 0;
+        var top  = 0;
+    /** Safari fix -- thanks to Luis Chato for this! */
+    if (e.offsetHeight == 0) {
+    
+      e = e.firstChild; // a table cell
+    }
+
+        while (e.offsetParent){
+            left += e.offsetLeft;
+            top  += e.offsetTop;
+            e     = e.offsetParent;
+        }
+
+        left += e.offsetLeft;
+        top  += e.offsetTop;
+
+        return {x:left, y:top};
+    }
+
+  /** Get the mouse coordinates from the event (allowing for browser differences) */
+    this.mouseCoords = function(ev){
+        if(ev.pageX || ev.pageY){
+            return {x:ev.pageX, y:ev.pageY};
+        }
+        return {
+            x:ev.clientX + document.body.scrollLeft - document.body.clientLeft,
+            y:ev.clientY + document.body.scrollTop  - document.body.clientTop
+        };
+    }
+
+  /** Given a target element and a mouse event, get the mouse offset from that element.
+    To do this we need the element's position and the mouse position */
+    this.getMouseOffset = function(target, ev){
+        ev = ev || window.event;
+
+        var docPos    = this.getPosition(target);
+        var mousePos  = this.mouseCoords(ev);
+        return {x:mousePos.x - docPos.x, y:mousePos.y - docPos.y};
+    }
+
+  /** Take an item and add an onmousedown method so that we can make it draggable */
+    this.makeDraggable = function(item) {
+        if(!item) return;
+        var self = this; // Keep the context of the TableDnd inside the function
+        item.onmousedown = function(ev) {
+            // Need to check to see if we are an input or not, if we are an input, then
+            // return true to allow normal processing
+            var target = getEventSource(ev);
+            if (target.tagName == 'INPUT' || target.tagName == 'SELECT') return true;
+            currenttable = self;
+            self.dragObject  = this;
+            self.mouseOffset = self.getMouseOffset(this, ev);
+            return false;
+        }
+        
+    }
+
+    /** We're only worried about the y position really, because we can only move rows up and down */
+    this.findDropTargetRow = function(y) {
+        var rows = this.table.tBodies[0].rows;
+    for (var i=0; i<rows.length; i++) {
+      var row = rows[i];
+      // John Tarr added to ignore rows that Ive added the NoDnD attribute to (Header rows)
+      var nodrop = row.getAttribute("NoDrop");
+      if (nodrop == null || nodrop == "undefined") {  //There is no NoDnD attribute on rows I want to drag
+        var rowY    = this.getPosition(row).y;
+        var rowHeight = parseInt(row.offsetHeight)/2;
+        if (row.offsetHeight == 0) {
+          rowY = this.getPosition(row.firstChild).y;
+          rowHeight = parseInt(row.firstChild.offsetHeight)/2;
+        }
+        // Because we always have to insert before, we need to offset the height a bit
+        if ((y > rowY - rowHeight) && (y < (rowY + rowHeight))) {
+          // that's the row we're over
+          return row;
+        }
+      }
+    }
+    return null;
+  }
+}
+
+/* wird von coTable nicht mehr referenziert  */
+CO.Table.updateScrollBars = function(pId){
+  var vBox = $(pId); 
+  var vTobdy = vBox.down("tbody");
+  var vHead = vBox.down("thead");
+  var vClass = "#" + pId + " table > tbody";
+  var vFontSize = parseInt($(document.body).getStyle('fontSize').replace(/px/, ""),10);
+  var vHeight = (vBox.offsetHeight - vHead.offsetHeight - 2)/vFontSize +"em";
+
+  CO.CSS.addStyle( vClass + "{height: "+ vHeight +"}", "print, screen");  
+  CO.CSS.addStyle( vClass + "{overflow-x: hidden}", "print, screen");
+  CO.CSS.addStyle( vClass + "{overflow-y: scroll}", "print, screen");
+
+  if(vTobdy.scrollHeight == vTobdy.offsetHeight){
+    CO.CSS.addStyle( vClass + "{height: auto}", "print, screen");
+  }
+}
+
+
+
+
+CO.Table.tableScroll = function( pId ){
+  if( typeof($j) != "function")
+    return;
+
+  var vTHeight = $j("#"+ pId +" table.cotable > thead").height();
+  var vFHeight = $j("#"+ pId +" table.cotable > tfoot").height();
+  var vCHeight = $j("#"+ pId +" ").height();
+  var vTableId = $j("#"+ pId +" table.cotable").attr('id');
+  var vHeight = vCHeight - vTHeight - vFHeight;
+  var vTmp = [];
+
+  $j("#"+ vTableId +" ").tableScroll({
+    height:vHeight
+  });
+  window.setTimeout('$j("#'+ pId +'").removeClass("hidden")',10); 
+  vTmp = $(pId).select('table.tablescroll_head');
+  if(vTmp.size() > 0)
+    vTmp[0].observe("cotable:update", function(pEvent){ 
+      CO.Table.handleSelect($(vTableId),false,false,false)
+    });
+  vTmp = $(pId).select('table.tablescroll_foot');  
+  if(vTmp.size() > 0)
+    vTmp[0].observe("cotable:update", function(pEvent){ 
+      CO.Table.handleSelect($(vTableId),false,false,false)
+    });
+}
+
+
+$NS("CO.Filter"); self.CO.Filter.showFilter = function(element, pMask, pAnchor)
+{
+  //--hide all visible filters
+  CO.Table.Tools.hide();
+  
+  //--replace form with div
+  var vMask = $(pMask).down("form");
+ 
+  if(vMask)
+  {
+    var vInnerMask = vMask.firstDescendant();
+  
+    if(vInnerMask)
+    {
+      $(pMask).down("form").replace(vInnerMask );
+    }
+  }
+  
+  //--prepare the elements
+  //$(element).setStyle({"position" : "relative"});
+  $(pMask).setStyle({"position" : "relative"});
+  
+  //--make the box overlay
+  var vBox = CO.Overlay.create("filter", $("pageContent"));
+  vBox.addClassName("coFilter");
+  vBox.setStyle({ width: "auto", height: "auto", bottom: "", top: "", left: "" });
+  $(element).insert({bottom: vBox});
+  
+  //--insert the mask
+  vBox.insert( $(pMask) );
+  
+  //--focus 1st element
+  var vFirstInput = $(pMask).down("input");
+  if(!vFirstInput){ vFirstInput = $(pMask).down("select"); }
+  if(vFirstInput) vFirstInput.activate();
+  
+  //--correct position
+  var vTHead = $(element).up("thead");
+  var vMaxRight = vTHead.cumulativeOffset()[0]+vTHead.getWidth();
+  var vMaskRight = vBox.cumulativeOffset()[0]+vBox.getWidth();
+  
+  if(vMaskRight > vMaxRight)
+  {
+    var vTmpleftpos = vMaxRight-vMaskRight;
+    if ( vTmpleftpos < 0 ) { vTmpleftpos = 0; }
+    $(pMask).setStyle({left: (vTmpleftpos)+"px", position: "relative"});       
+  }
+  
+  //--observe close action
+  //$(vBox).observe('click', function(event){Event.stop(event);});
+  $("pageContent").observe('click', function(pEvent)
+  { 
+    if( ! $(Event.element(pEvent)).up('.coFilter') ) 
+      CO.Table.Tools.hide();
+  } );
+};
+
+CO.Table.Tools = {}
+
+// -- Alle filter overlays loeschen
+CO.Table.Tools.hide = function()
+{
+  //-- Die Overlays entfernen, aber den Inhalt sichern 
+  //-- gesichert wird in ToolTipOverlayCBCT
+  while( CO.Overlay.exists("filter", $("pageContent")) ) 
+  {
+    $("ToolTipOverlayCBCT").insert
+    (
+      CO.Overlay.get("filter", $("pageContent")).down()
+    );
+    
+    CO.Overlay.remove("filter", $("pageContent"));    
+  }
+  
+  while( CO.Overlay.remove("filterTitel", $("pageContent")) ) {}    
+  $("pageContent").stopObserving('click', CO.Table.Tools.hide);    
+};
+
+// -- Filterung durchf�hren
+CO.Table.filter = function(pTable, pFilter, pFilterString)
+{
+  pFilterString = pFilterString.split("?").pop();
+  var vFilterUrl = new CO.Url("null?"+pFilterString);
+  
+  /*
+  Fix für SR-39012:
+  Vorerst werden nur Checkboxen behandelt!
+  Eine Erweiterung auf alle Arten von Elementen ist vorstellbar!
+  
+  Zuerst werden alle Checkboxen der Filter-Maske ermittelt.
+  Dann wird je Name des Elements geprüft, ob es eine aktive Checkbox gibt.
+  Wenn es keine aktive Checkbox gibt, wird der Parameter aus der Url entfernt (=> Keine Filterung mehr)!
+  
+  */
+  var vElements = $A($(pFilter).select("[name]"))
+                               .findAll( function( pElement ) { return pElement.tagName == "INPUT" && pElement.type == "checkbox" ;} )
+                               ;
+
+  var vElementNameS = vElements.map( function(pElement) { return pElement.name; }).uniq();
+
+  vElementNameS.each(
+  function( pElementName ) {  
+    
+    var vAreElementsChecked = vElements.findAll(function(pElement){ return pElement.name == pElementName;}   )
+                     .any( function(pElement){ return pElement.checked; } )
+    ; 
+    
+    if ( !vAreElementsChecked ) {
+      vFilterUrl.delParam(pElementName);
+    }
+  
+  
+  }
+  )
+  // Fix für SR-39012 - Ende
+  
+  vFilterUrl.serializeInput($(pFilter));
+  CO.Table.goTo($(pTable), false, "", "", "", vFilterUrl.get());    
+};
+
+// -- Filter wieder aufheben
+CO.Table.deleteFilter = function(pTable, pFilter, pFilterString)
+{
+  pFilterString = pFilterString.split("?").pop();
+  var vDelFilterUrl = new CO.Url("").serializeInput($(pFilter));
+  var vFilterUrl = new CO.Url("null?"+pFilterString);
+  
+  vDelFilterUrl.mParams.keys().each(
+    function(pKey)
+    {
+      vFilterUrl.delParam(pKey);
+    });
+  
+  CO.Table.goTo($(pTable), "", "", "", "", vFilterUrl.get());    
+};
+
+// -- Alle Filter wieder aufheben
+CO.Table.deleteAllFilter = function(pTable)
+{
+  CO.Table.goTo($(pTable), "", "", "", "", "null");    
+};
+
+
+
+CO.DS = Class.create(
+{  
+  initialize: function(pDS)
+  {
+    this.ds = pDS;
+  }
+  ,
+  getRefreshUrl: function(pObject)
+  {
+    return(
+      new CO.Url(this.ds.uri)
+        .setParam("$format", "CO.WBCUDSFIELD.CBUPDATEFIELD")
+        .setParam("pDSNr", this.ds.nr)
+        .setParam("pUpdateFieldName", pObject.urlParamName)        
+        .setParam("pUpdateDSColId", pObject.dsColId)
+        
+    );
+  }
+});
+
+CO.DS.getMaskRow = function( pMask, pFieldName )
+{
+  if( ! pMask || ! pMask[pFieldName] ) 
+    return(null);
+  
+  if( pMask[pFieldName].tagName )
+    return( pMask[pFieldName] );
+  
+  if( pMask[pFieldName][0] ) 
+    return(pMask[pFieldName][0]);
+    
+  return(null);
+}
+
+
+
+
+

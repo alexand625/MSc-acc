@@ -1,0 +1,9 @@
+
+var co_loc_wartungText = '';
+var co_loc_wartungElement = false;
+try {
+    co_loc_wartungElement = top.frames[0].document.getElementsByClassName('WartungsAnkuendigung')[0];
+} catch(e) {}
+if(co_loc_wartungElement && co_loc_wartungText.length > 3) co_loc_wartungElement.innerHTML = "<div style=\"max-height: 40px; overflow: hidden;\">"+co_loc_wartungText+"</div>";
+
+

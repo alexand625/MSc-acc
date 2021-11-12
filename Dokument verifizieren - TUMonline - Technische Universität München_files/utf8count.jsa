@@ -1,0 +1,91 @@
+/**
+ * codePoint - an integer containing a Unicode code point
+ * return - the number of bytes required to store the code point in UTF-8
+ */
+function utf8Len(codePoint) {
+  if(codePoint >= 0xD800 && codePoint <= 0xDFFF)
+    throw new Error("Illegal argument: "+codePoint);
+  if(codePoint < 0) throw new Error("Illegal argument: "+codePoint);
+  if(codePoint <= 0x7F) return 1;
+  if(codePoint <= 0x7FF) return 2;
+  if(codePoint <= 0xFFFF) return 3;
+  if(codePoint <= 0x1FFFFF) return 4;
+  if(codePoint <= 0x3FFFFFF) return 5;
+  if(codePoint <= 0x7FFFFFFF) return 6;
+  throw new Error("Illegal argument: "+codePoint);
+}
+
+function isHighSurrogate(codeUnit) {
+  return codeUnit >= 0xD800 && codeUnit <= 0xDBFF;
+}
+
+function isLowSurrogate(codeUnit) {
+  return codeUnit >= 0xDC00 && codeUnit <= 0xDFFF;
+}
+
+/**
+ * Transforms UTF-16 surrogate pairs to a code point.
+ * See RFC2781
+ */
+function toCodepoint(highCodeUnit, lowCodeUnit) {
+  if(!isHighSurrogate(highCodeUnit)) throw new Error("Illegal argument: "+highCodeUnit);
+  if(!isLowSurrogate(lowCodeUnit)) throw new Error("Illegal argument: "+lowCodeUnit);
+  highCodeUnit = (0x3FF & highCodeUnit) << 10;
+  var u = highCodeUnit | (0x3FF & lowCodeUnit);
+  return u + 0x10000;
+}
+
+/**
+ * Counts the length in bytes of a string when encoded as UTF-8.
+ * str - a string
+ * return - the length as an integer
+ */
+function utf8ByteCount(str) {
+  if (typeof str !== 'string') { return 0; }
+  var count = 0;
+  for(var i=0, len=str.length; i<len; i++) {
+    var ch = str.charCodeAt(i);
+    if(isHighSurrogate(ch)) {
+      var high = ch;
+      var low = str.charCodeAt(++i);
+      count += utf8Len(toCodepoint(high, low));
+    } else {
+      count += utf8Len(ch);
+    }
+  }
+  return count;
+}
+
+/**
+ * ACHTUNG: Die Datenbank wird derzeit im Oracle-Zeichensatz UTF8 eingestellt. Dieses Charset-Encoding entspricht nicht UTF-8 sondern
+ * CESU-8. In CESU-8 werden die High- und Low-Surrogates anders behandelt als in UTF-8!
+ * 
+ * Bsp. Zeichen "Unicode Han Character U+20075 (hex 0x020075 oder dezimal 131189)"
+ * 
+ * - UCS4 Codepoint (hex):           020075
+ * - UTF-8 Byte Sequenz (hex):       F0 A0 81 B5                                               4 Byte
+ * - UTF-16BE Byte Sequenz (hex):    D840 DC75      (High- und Low-Surrogate)                  4 Byte
+ * - CESU-8 (DB) Byte Sequenz (hex): EDA180 EDB1B5  (UTF-8 codierter High- und Low-Surrogate)  6 Byte
+ * 
+ * D.h.: Die Zeichen-Zählung für UTF-8 ist korrekt, ist aber für die Datenbank nur für die Basic-Multilingual-Plane korrekt.
+ * --> Known Limitation für Zeichen aus dem Universal Character Set ausserhalb der Basic-Multilingual-Plane (Zeichen mit Codepoint > 0x0FFFF)
+ * 
+ * Ebenfalls werden die Fähigkeiten der CHAR-Datentypen bzgl. der LENGTH_SEMANTIC nicht korrekt abgebildet:
+ * (DB-Parameter NLS_LENGTH_SEMANTICS - BYTE oder CHAR ?)
+ * Für das Oracle-Character-Set UTF8 (= CESU-8) können beispielsweise in einem VARCHAR2(4000 CHAR) 4000 Zeichen gespeichert werden,
+ * aber gleichzeitig auch maximal 4000 Bytes. D.h. 4000 Zeichen können nur dann abgespeichert werden, wenn alle Zeichen
+ * als Ein-Byte-Transformation dargestellt werden können. Das gilt genau nur für alle ASCII-Zeichen (7-Bit).
+ */
+function utf8CharCount(str) {
+  if (typeof str !== 'string') { return 0; }
+  var count=0;
+  for(var i=0, len=str.length; i<len; i++) {
+    var ch = str.charCodeAt(i);
+    if(isHighSurrogate(ch)) {
+      var high = ch;
+      var low = str.charCodeAt(++i);
+    }
+    count += 1;
+  }
+  return count;
+}

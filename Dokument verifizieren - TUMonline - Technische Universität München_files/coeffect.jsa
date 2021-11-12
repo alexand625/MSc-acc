@@ -1,0 +1,379 @@
+//Effekte speziell für Callbacks
+
+if(typeof(CO) == "undefined")
+  var CO = Class.create();
+
+CO.Effect = Class.create();
+
+//---
+CO.Effect.Effect = Class.create(
+{
+  initialize: function(pTargets)
+  {
+    this.mTargets = CO.Tools.strToNodes(pTargets);
+  },
+  
+  start: function(){},
+  end:   function(){}
+});
+
+//---
+CO.Effect.Overlay = Class.create(CO.Effect.Effect,
+{
+  initialize: function($super, pTargets) {$super(pTargets);},
+  
+  createOverlays: function(pOptions)
+  {
+    if(typeof(pOptions) == "undefined") pOptions = {};
+    
+    pOptions = Object.extend({pStyle: "", pContent: "", pClass: ""}, pOptions);
+    
+    var mOverlays = [];
+   
+    this.mTargets.each(function(vItem)
+    {
+      var vOverlay = vItem.addOverlay("ovEffect");
+      mOverlays.push(vOverlay);
+      
+      if(pOptions.pStyle   != "")
+      {
+         vOverlay.setStyle(pOptions.pStyle);
+      }
+      if(pOptions.pClass   != "") vOverlay.addClassName(pOptions.pClass);
+      if(pOptions.pContent != "") vOverlay.update(pOptions.pContent);
+    });
+
+    this.mOverlays = mOverlays;
+    
+    return(this.mOverlays);
+  },
+  
+  start: function(pOptions)
+  {
+    this.createOverlays(pOptions);
+  },
+  
+  end: function()
+  {
+    this.mOverlays.each(function(vItem){ if ( vItem && vItem.parentNode ) { vItem.remove(); } });
+  }
+});
+
+//---
+CO.Effect.Opacity = Class.create(CO.Effect.Overlay,
+{
+  initialize: function($super, pTargets) {$super(pTargets);},
+  
+  start: function(pPercent)
+  {
+    if(typeof(pPercent) == "undefined") pPercent = 0.5;
+    if(pPercent > 1) pPercent = pPercent/100;
+    this.createOverlays({pStyle: {backgroundColor: "#FFFFFF", opacity: pPercent}});
+  }  
+});
+
+//---
+CO.Effect.Disable = Class.create(CO.Effect.Overlay,
+{
+  initialize: function($super, pTargets) {$super(pTargets);},
+  
+  start: function()
+  {
+    this.createOverlays({pStyle: {backgroundColor: "#FFFFFF", opacity: "0.5"}});
+    
+    this.mTargets.each(function(vItem)
+    {
+      try{ vItem.blur(); } catch(e){}         
+      try{ vItem.disabled = true; } catch(e){}
+    });
+  }  
+});
+
+//---
+CO.Effect.Image = Class.create(CO.Effect.Overlay,
+{
+  initialize: function($super, pTargets) {$super(pTargets);},
+  
+  start: function(pImg,pImgClass,pText)
+  {
+    if(typeof(pImgClass) == "undefined") pImgClass = "";
+    if(typeof(pText)     == "undefined") pText = "";
+    
+    var vTemplate =
+      "<table style='width:100%;height:100%;'>"
+        +"<tr><td class='"+pImgClass+"'>"
+        +"<img src='"+pImg+"'>"
+        +"<span>"
+        +pText
+        +"</span>"
+      +"</td></tr></table>";
+    
+    this.createOverlays({pContent: vTemplate});
+  }  
+});
+
+//---
+CO.Effect.SiteLoading = Class.create(CO.Effect.Overlay,
+{
+  initialize: function($super) {$super("$(document.body)");},
+  
+  setVisible: function()
+  {
+    this.mOverlays.each(function(vItem){ if(!isNull(vItem)){ vItem.style.display = "block"; }});
+  },
+  
+  start: function()
+  {
+   
+    var vStyle = 
+    {
+        background: "url(\""+CO.IMGPATH+"loading_24x24.gif\") no-repeat scroll center 5px #efefef"
+      , border: "1px solid #cdcdcd"
+      , bottom: "auto"
+      , color: "#111"
+      , display: "block"
+      , left: "auto"
+      , lineHeight: "40px"
+      , margin: "auto"
+      , maxWidth: "60px"
+      , overflow: "hidden"
+      , padding: "30px 10px 0"
+      , position: "fixed"
+      , right: "49%"
+      , textAlign: "center"
+      , top: "46%"
+      , width:  "60px"
+      , zIndex: "9999"
+     };
+    this.createOverlays({pStyle: vStyle, pContent: "Loading"});
+    
+    var vThis = this;
+    
+    window.setTimeout(function(){vThis.setVisible();}, 500);
+  }
+});
+
+
+
+
+
+
+
+
+var JSEffect = Class.create();
+
+
+self.JSEffect.showOverlayer = function(pJSId, pOverlayJSId, pInnerHtml, pZIndex)
+{
+  if (pZIndex == null)
+  {
+    pZIndex = 100;
+  }  
+  
+  var vDimensions  = $(pJSId).getDimensions();
+  var vPosition    = Position.cumulativeOffset($(pJSId));  
+  vDimensions.left = vPosition[0];
+  vDimensions.top  = vPosition[1];
+
+  var vDiv = document.createElement("div");
+  vDiv = $(vDiv);
+  
+  
+  
+  var vAttr = document.createAttribute("id");
+  vAttr.nodeValue = pOverlayJSId;
+  vDiv.setAttributeNode(vAttr);  
+  
+  var myText = document.createTextNode("");
+  vDiv.appendChild(myText);  
+  vDiv.innerHTML = pInnerHtml;
+  
+    
+  //Position.absolutize($(vDiv));
+  
+  
+ 
+  $(vDiv).setStyle(
+    {
+        left:   vDimensions.left   + "px"
+      , top:    vDimensions.top    + "px"
+      , width:  vDimensions.width  + "px"
+      , height: vDimensions.height + "px"
+      , zIndex: pZIndex
+      , position: "absolute"    
+    });
+    
+  
+ 
+  var objBody = document.getElementsByTagName("body").item(0);
+  objBody.appendChild(vDiv);
+
+  $(vDiv).setStyle(
+    {
+      margin: "0px"
+    });  
+  
+  return(vDiv);
+}
+
+self.JSEffect.startEffect = function(pJSIds, pParams)
+{
+  
+  var vJsIds = pJSIds.split(",");
+ 
+  if(pParams.pType == "image")
+  {
+    vImgPath = pParams.pImgPath;
+    vClass   = pParams.pClass;
+    vText    = pParams.pText;
+
+    vJsIds.each(function(vItem)
+    {
+      if(!$(vItem+"image"))
+      {
+        vDiv = JSEffect.showOverlayer(
+            vItem
+          , vItem+"image"
+          , "<table style='width:100%;height:100%;'>"
+             +"<tr><td class='"+vClass+"'>"
+               +"<img style='top:100px;' src='"+vImgPath+"'>"
+               +"<span>"
+               +vText
+               +"</span>"
+             +"</td></tr></table>"
+          , 101);
+      }
+    });    
+  }
+ 
+  if(pParams.pType == "disable")
+  {
+    vColor   = pParams.pColor;
+    vPercent = pParams.pPercent/100;
+ 
+    vJsIds.each(function(vItem)
+    {
+      
+      if(!$(vItem+"disable"))
+      {
+        vDiv = JSEffect.showOverlayer(vItem, vItem+"disable", "");
+        
+        
+        $(vDiv).setStyle(
+          {      
+              backgroundColor: vColor
+            , opacity: vPercent
+          });        
+      
+        try{ $(vItem).blur(); } catch(e){}         
+        try{ $(vItem).disabled = true; } catch(e){}         
+        
+      }
+      
+    });
+  }
+ 
+  if(pParams.pType == "opacity")
+  {
+    vPercent = pParams.pPercent/100;
+ 
+    vJsIds.each(function(vItem)
+    {
+      if(Prototype.Browser.IE)
+      {
+        $(vItem).setStyle(
+          {
+              opacity: vPercent
+            , height: $(vItem).getStyle("height")
+          });
+      }
+      else
+      {
+        $(vItem).setStyle(
+          {
+            opacity: vPercent
+          });
+      }
+    });
+  }
+
+};
+
+self.JSEffect.stopEffect = function(pJSIds, pParams)
+{
+   var vJsIds = pJSIds.split(",");
+
+   if(pParams.pType == "image")
+   {
+     vJsIds.each(function(vItem)
+     {
+       if($(vItem+"image"))
+       {
+         $(vItem+"image").parentNode.removeChild($(vItem+"image"));
+       }
+     });
+
+     return;
+   }
+
+   if(pParams.pType == "disable")
+   {
+     vJsIds.each(function(vItem)
+     {
+       if($(vItem+"disable"))
+       {
+         try{ $(vItem).disabled = false; } catch(e){}         
+         $(vItem+"disable").parentNode.removeChild($(vItem+"disable"));
+       }
+     });
+
+     return;
+   }
+
+   if(pParams.pType == "opacity")
+   {
+     vJsIds.each(function(vItem)
+     {
+       if(Prototype.Browser.IE)
+       {
+         $(vItem).setStyle(
+           {
+               opacity: 1
+             , height: $(vItem).getStyle("height")
+           });
+       }
+       else
+       {
+         $(vItem).setStyle(
+           {
+               opacity: 1
+           });
+       }
+     });
+
+     return;
+   }
+
+};
+
+/*
+--------------------------------------------------------------------------------
+MEMBER PROCEDURE addEffect(
+    pJS  in varchar2 )
+IS
+BEGIN
+  mEffects := mEffects || ' ' || pJS || ';';
+END;
+
+--------------------------------------------------------------------------------
+MEMBER FUNCTION addEffect(
+    pJS  in varchar2 ) 
+  RETURN CBUrl
+IS
+  vSelf  CBUrl := self;
+BEGIN
+  vSelf.mEffects := vSelf.mEffects || ' ' || pJS || ';';
+  return(vSelf);
+END;
+
+*/

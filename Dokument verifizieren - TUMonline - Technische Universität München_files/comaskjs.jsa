@@ -1,0 +1,2561 @@
+/**
+ * Validation API
+ *
+ * @author CSt
+ * @author BPr
+ * @author Dva
+ * @author ECU
+ */
+
+function replaceLfWithCrLf(pString) {
+  if (!pString) { return pString; }
+  return (pString.indexOf('\r\n') == -1) ? pString.replace(/\n/g, '\r\n') : pString;
+}
+
+function countUtf8Chars(pString) {
+  // ACHTUNG Known-Limitation: utf8CharCount (!) und nicht CESU-8-Count
+  return utf8CharCount(replaceLfWithCrLf(pString));
+}
+
+function getLengthForValidator( pString )
+{
+  return utf8ByteCount(replaceLfWithCrLf(pString));
+}
+
+function shouldBeValidated( pElement ) {
+  var vElement = $( pElement );
+  
+  return !(vElement.hasClassName( "invisible" )
+      ||   vElement.up( ".invisible" )
+      ||  (vElement["disabled"] != undefined && vElement["disabled"] == true));
+}
+ 
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Creates a new ValidatorContainer.
+ */
+CO.ValidatorContainer = Class.create(
+{
+  initialize: function()
+  {
+    this.mMaskContainer  = new Hash();
+    this.mInputContainer = new Hash();
+  }
+});
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Add a new Validator.
+ */
+CO.ValidatorContainer.prototype.add = function( pValidator, pMaskId, pInputHtmlId )
+{
+  if ( pInputHtmlId == undefined )
+    pInputHtmlId = pValidator.getHtmlInputId();
+    
+  if ( pInputHtmlId == undefined )
+    return;
+
+  if ( pMaskId == undefined )
+    pMaskId = this.getMaskIdForHTMLElement( pValidator.getHTMLElement() );
+
+  // prepare the container which holdes the validator instances for each input object
+  var vCurrObjContainer = this.mMaskContainer.get( pMaskId );
+  if ( vCurrObjContainer == undefined )
+    vCurrObjContainer = this.mMaskContainer.set( pMaskId, new Hash() );
+
+  // create the input object if it does not exist
+  var vCurrInputObj = vCurrObjContainer.get( pInputHtmlId );
+  if ( vCurrInputObj == undefined )
+  {
+    vCurrInputObj = vCurrObjContainer.set( pInputHtmlId, new Object() );
+    vCurrInputObj.mValidatorArray = new Array();
+    vCurrInputObj.mErrorSymbol    = undefined;
+  }
+
+  // check, if there exists already an Validator of the same type for this input object
+  var vExistsValidator = false;
+  for ( var idx = 0; idx < vCurrInputObj.mValidatorArray.length; idx++ )
+  {
+    if ( vCurrInputObj.mValidatorArray[ idx ].type == pValidator.type )
+    {
+      // if we have found one, we save the new Validator instance at the same position the previous Validator resides.
+      vCurrInputObj.mValidatorArray[ idx ] = pValidator;
+      vExistsValidator = true;
+      break;
+    }
+  }
+
+  // if the Validator does not exist we store it
+  if ( !vExistsValidator )
+  {
+//    console.info( "add validator " + pValidator.type + ": element=" + pInputHtmlId );
+    vCurrInputObj.mValidatorArray.push( pValidator );
+  }
+
+  // redundate store the input object in an container for fast access
+  this.mInputContainer.set( pInputHtmlId, vCurrInputObj );
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Add a Validator group (NOfMValidator)
+ */
+CO.ValidatorContainer.prototype.addGroup = function( pValidatorGroup, pMaskId )
+{
+  if ( pMaskId == undefined )
+    pMaskId = this.getMaskIdForHTMLElement( pValidatorGroup.getHTMLElements()[0] );
+
+  var vInputElements = pValidatorGroup.getHTMLElements();
+
+  for ( var idx = 0; idx < vInputElements.length; idx++ )
+    this.add( pValidatorGroup, pMaskId, vInputElements[ idx ].id );
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Add a Validator for an array of html ids.
+ */
+CO.ValidatorContainer.prototype.addValidators = function( pValidatorS, pType, pMaskId )
+{
+  var vElement;
+  var vNewInstance;
+
+  for ( var idx = 0; idx < pValidatorS.length; idx++ )
+  {
+    vElement = $( pValidatorS[ idx ] );
+    vNewInstance = eval( "new CO." + pType + "( vElement )" );
+
+    this.add( vNewInstance, pMaskId )
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Removes all unused Validators for the Container pContainer.
+ */
+CO.ValidatorContainer.prototype.removeValidator = function( pInputHtmlId )
+{
+  var vCurrInputObj = this.mInputContainer.get( pInputHtmlId );
+  
+  if ( vCurrInputObj != undefined )
+  {
+    var vValidators = vCurrInputObj.mValidatorArray;
+    for ( var idx = 0; idx < vValidators.length; idx++ )
+      vValidators[ idx ].removeError();
+    
+    this.mInputContainer.unset( pInputHtmlId );
+    this.mMaskContainer.get( this.getMaskIdForHTMLElement( $( pInputHtmlId ) ) ).unset( pInputHtmlId );
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Sucht zu einem Element welches noch im DOM ist die zugehÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶rige ID auf dem die Validatoren vorhanden sind
+ */
+CO.ValidatorContainer.prototype.getAssociatedValidatorID = function( element )
+{
+  element = $(element);
+  
+  if(!element) return(null);
+  
+  if(element.tagName == "FORM") return(element.id);
+  
+  var vForm = element.up("form");
+  
+  if(vForm) return( vForm.id );
+  
+  return(null);
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Sucht zu einem Element welches noch im DOM ist die zugehÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶rige Validator ID ids, weleche das Element umschlieÃƒÆ’Ã†â€™Ãƒâ€¦Ã‚Â¸t
+ */
+CO.ValidatorContainer.prototype.getContainingValidatorIDS = function( element )
+{
+  element = $(element);
+  
+  if(!element) return([null]);
+  
+  if(element.tagName == "FORM") return([element.id]);
+  
+  var vMaskIds = [];
+  
+  element.select("form").each(function(pMask){ vMaskIds.push(pMask.id); })
+  
+  return( vMaskIds );
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Removes all unused Validators for the Container pContainer.
+ */
+CO.ValidatorContainer.prototype.removeUnusedValidators = function( pMaskId )
+{
+  if(Object.isArray(pMaskId))
+  {
+    pMaskId.each( function(pMId) { gVC.removeUnusedValidators(pMId); });
+    return;
+  }
+
+  var vMaskId = pMaskId;
+  
+  //console.info( "=== removeUnusedValidators === mask_id=" + vMaskId );
+  
+  if(!vMaskId) return;
+  
+  
+  //vMaskId = this.getMaskIdForHTMLElement( pContainer );
+
+  if ( vMaskId == undefined )
+    return; // no mask found
+
+  var vValidatorArray = this.getValidatorsForMaskId( vMaskId );
+  
+//  console.info( "validators.count=" + vValidatorArray.length );
+
+  // loop over all validators
+  for( var idx = 0; idx < vValidatorArray.length; idx++ )
+  {
+    if ( vValidatorArray[ idx ].type == "NOfMValidator" )
+    {
+      var vElements = vValidatorArray[ idx ].getHTMLElements();
+      for ( var vElemCnt = 0; vElemCnt < vElements.length; vElemCnt++ )
+      {
+        var vHtmlId = vElements[ vElemCnt ].id;
+
+        // if the element with this id does not longer exist => remove the Validator
+        if ( $( vHtmlId ) == undefined )
+        {
+          // remove error
+          vValidatorArray[ idx ].removeError();
+
+          // and unregister validator
+          this.mMaskContainer.get( vMaskId ).unset( vHtmlId );
+          this.mInputContainer.unset( vHtmlId );
+        }
+      }
+    }
+    else
+    {
+      var vHtmlId = vValidatorArray[ idx ].getHtmlInputId();
+
+      // if the element with this id does not longer exist => remove the Validator
+      if ( $( vHtmlId ) == undefined )
+      {
+//        console.info( "remove Validator " + vValidatorArray[ idx ].type + ": element=" + vHtmlId );
+
+        // remove error
+        vValidatorArray[ idx ].removeError();
+
+        // and unregister validator
+        this.mMaskContainer.get( vMaskId ).unset( vHtmlId );
+        this.mInputContainer.unset( vHtmlId );
+      }
+    }
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Removes all Validators for the Mask pMaskId.
+ */
+CO.ValidatorContainer.prototype.removeValidators = function( pMaskId )
+{
+  var vObjContainer = this.mMaskContainer.get( pMaskId );
+
+  if ( vObjContainer != undefined )
+  {
+    var vKeys = vObjContainer.keys()
+
+    for ( var idx = 0; idx < vKeys.length; idx++ )
+    {
+//      console.info( "removing validator for element " + vKeys[ idx ] );
+      
+      var vValidators = this.mMaskContainer.get( pMaskId ).get( vKeys[ idx ] ).mValidatorArray;
+      for ( var vValidatorIdx = 0; vValidatorIdx < vValidators.length; vValidatorIdx++ )
+      {
+        vValidators[ vValidatorIdx ].removeError();
+      }
+      
+      this.mInputContainer.unset( vKeys[ idx ] );
+      this.mMaskContainer.get( pMaskId ).unset( vKeys[ idx ] );
+    }
+    this.mMaskContainer.unset( pMaskId );
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Removes all registered Validators.
+ */
+CO.ValidatorContainer.prototype.removeAllValidators = function()
+{
+  var vMaskIds = this.mMaskContainer.keys();
+  
+  for( var idx = 0; idx < vMaskIds.length; idx++ )
+    this.removeValidators( vMaskIds[ idx ] );
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Calls the validate method for each registered Validator for the input element pInputHtmlId.
+ */
+CO.ValidatorContainer.prototype.validate = function( pInputHtmlId )
+{
+  var vCurrInputObj = this.mInputContainer.get( pInputHtmlId );
+  var vInputElement = $(pInputHtmlId);
+  
+  //no validation if coautosuggestion is active
+  if((vInputElement != null) && (vInputElement["as"] != undefined) && (vInputElement.as.isActive()))
+  {
+      return true;
+  }
+  
+  if ( vCurrInputObj != undefined )
+  {
+    var vValidators = vCurrInputObj.mValidatorArray;
+    
+    // call all registered validators
+    for ( var idx = 0; idx < vValidators.length; idx++ )
+    {
+      if ( vValidators[ idx ].validate() == false )
+        return false;
+    }
+  }
+  
+  return true;
+}
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Validates the entire mask.
+ */
+CO.ValidatorContainer.prototype.validateMask = function( pMaskId )
+{
+  var vValidators = this.getValidatorsForMaskId( pMaskId );
+  var vIsValid    = true;
+
+  for ( var idx = 0; idx < vValidators.length; idx++ )
+  {
+    var vValidator = vValidators[ idx ];
+
+    if (shouldBeValidated(vValidator.getHtmlInputId()) && !vValidator.validate()) {
+      vIsValid = false;
+  }
+  }
+  
+  return( vIsValid );
+}
+
+
+/**
+ * Validates input fields of a container
+ */
+CO.ValidatorContainer.prototype.validateContainer = function( element )
+{
+    var inputs = $(element).select("input", "select", "table.CBgroup" /*Checkbox/Radiobutton-Validator*/, "textarea");
+    var validation_result = true;
+    var element_validation;
+      
+    for(var i=0; i < inputs.length; i++)
+    {
+    if (shouldBeValidated(inputs[i])) {
+    
+      element_validation = this.validate(inputs[i].id)
+      validation_result = (validation_result && element_validation);
+      }
+    }
+      
+    return validation_result;
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Removes all validation errors.
+ */
+CO.ValidatorContainer.prototype.removeAllErrors = function()
+{
+  var vValidators = this.getAllValidators();
+
+  for( var idx = 0; idx < vValidators.length; idx++ )
+    vValidators[ idx ].removeError();
+}
+
+
+/**
+ * Removes all validation errors.
+ */
+CO.ValidatorContainer.prototype.removeAllErrorsOfElement = function(pElement)
+{
+  var mask_id = gVC.getMaskIdForHTMLElement(pElement)
+      
+  if(mask_id != undefined)
+  {    
+     var validators = gVC.getValidatorsForMaskId(mask_id);
+     for(var i=0; i < validators.length; i++)
+     {
+         if((validators[i] instanceof  CO.Validator) 
+            && (validators[i].getHTMLElement() == pElement))
+         {
+            validators[i].removeError();
+         }
+     }
+  }
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Returns all Validators for the Mask pMaskId
+ */
+CO.ValidatorContainer.prototype.getValidatorsForMaskId = function( pMaskId )
+{
+  var vValidators   = new Array();
+  var vObjContainer = this.mMaskContainer.get( pMaskId );
+  
+  if ( vObjContainer != undefined )
+  {
+    var vKeys = vObjContainer.keys()
+
+    for ( var idx = 0; idx < vKeys.length; idx++ )
+    {
+      vValidators = vValidators.concat( vObjContainer.get( vKeys[ idx ] ).mValidatorArray )
+    }
+  }
+
+  return( vValidators );
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Returns all Validators for the Mask pMaskId
+ */
+CO.ValidatorContainer.prototype.getAllValidators = function()
+{
+  var vValidators = new Array();
+  var vKeys       = this.mMaskContainer.keys();
+
+  for ( var idx = 0; idx < vKeys.length; idx++ )
+    vValidators = vValidators.concat( this.getValidatorsForMaskId( vKeys[ idx ] ) );
+
+  return( vValidators );
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * Tries to find the Mask ID of the input element pInputHtmlId.
+ */
+CO.ValidatorContainer.prototype.getMaskIdForHTMLElement = function( pInputHtmlElement )
+{
+  if ( pInputHtmlElement == undefined )
+    return( undefined );
+  
+  var vParentNode = pInputHtmlElement.parentNode;
+
+  while( vParentNode != undefined )
+  {
+    if ( vParentNode.tagName == "FORM" )
+      return( vParentNode.id );
+
+    vParentNode = vParentNode.parentNode;
+  }
+
+  return( undefined );
+}
+
+// -----------------------------------------------------------------------------------------------------------
+/**
+ * Initialize a global ValidatorContainer.
+ */
+var gVC = new CO.ValidatorContainer();
+// -----------------------------------------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------------------------------------
+/**
+ * CO.Validator - base class for all Validators.
+ */
+CO.Validator = Class.create({
+    initialize: function(input_html)
+    {
+        this.input_html = input_html;
+        this.error_object = undefined;
+        this.setAriaDescription(this.input_html, this.getAriaDescriptionString());
+    }
+});
+
+CO.Validator.prototype.getHTMLElement=function()
+{
+    return this.input_html;
+}
+
+CO.Validator.prototype.removeError=function()
+{
+    if(this.error_object != undefined)
+    {
+        if (this.error_object.parentNode != undefined)
+        {
+            CO.msg.remove(this.error_object);
+        }
+        this.removeIdFromAriaDescribedBy(this.input_html,this.error_object.identify() );
+        
+        
+        this.error_object = undefined;
+
+        this.setLabelClassForError(false);
+        /* setting aria invalid also for custom html components */
+        if(this.input_html.setAriaInvalid != undefined) 
+        {
+           this.input_html.setAriaInvalid(false);
+        } 
+        else {
+           this.input_html.setAttribute("aria-invalid", "false");
+        }
+    }
+}
+
+CO.Validator.prototype.isNaNOrWhitespace=function(pString)
+{
+  
+  return isNaN(nvl(pString,"").toString().replace(/\s/g, "_"));
+}
+
+CO.Validator.prototype.addError=function(error_string)
+{
+    this.error_object = this.input_html.addError(error_string);
+    
+    this.setLabelClassForError(true);
+         
+    /* setting aria invalid also for custom html components */
+    if(this.input_html.setAriaInvalid != undefined) 
+    {
+       this.input_html.setAriaInvalid(true);
+    } 
+    else {
+       this.input_html.setAttribute("aria-invalid", "true");
+    }
+
+    //adding error object
+    this.prependId2AriaDescribedBy(this.input_html, this.error_object.identify());
+
+    CO.Page.fixMasks();
+}
+
+CO.Validator.prototype.setAriaDescription=function(input_html, label_text)
+{
+   var description_label;
+   
+   if(label_text == null)
+   {
+      return;
+   }
+   
+   description_label = document.createElement("label");
+   $(description_label).innerHTML=label_text;
+   description_label.addClassName("invisible");
+   input_html.insert({before:description_label});
+   //input_html.setAttribute("aria-describedby", description_label.identify());
+   this.prependId2AriaDescribedBy(input_html, description_label.identify());
+}
+
+CO.Validator.prototype.prependId2AriaDescribedBy=function(input_html, id)
+{
+  var current_value = nvl(input_html.getAttribute("aria-describedby"), "").strip();
+  
+  if((current_value+" ").include(id+" "))
+  {
+    return;
+  } 
+  
+  if(current_value.length == 0)
+  {
+    input_html.setAttribute("aria-describedby", id);
+  }
+  else
+  {
+    input_html.setAttribute("aria-describedby", id+" "+current_value);
+  }
+}
+
+CO.Validator.prototype.removeIdFromAriaDescribedBy=function(input_html, id)
+{
+  var current_value = nvl(input_html.getAttribute("aria-describedby"), "").strip();
+  current_value = (current_value+" ").sub(id+" ", "", 1);
+  
+  input_html.setAttribute("aria-describedby", current_value);
+}
+
+CO.Validator.prototype.getAriaDescriptionString=function()
+{
+   return null;
+}
+
+CO.Validator.prototype.fixDimensionForInputHtml=function(error_symbol, input_element)
+{
+   var input_html = nvl(input_element, this.input_html);
+   var input_type = nvl(input_html["type"], "");
+   var input_html_width;
+   var browser_offset = 0;
+   
+   
+   if((input_html.tagName.toLowerCase() == "input")
+      && ((input_type.toLowerCase() == "checkbox")||(input_type.toLowerCase() == "radio"))
+     )
+   {
+      return;     
+   }
+   
+   if(error_symbol == undefined)
+   {
+      input_html.style.width="";
+      return;
+   }
+   
+   input_html_width = parseInt($(input_html).getStyle("width"));
+   error_symbol_width = 16;//error_symbol.getWidth();
+   
+   //damn, need an offset for different browsers !!!
+   if (Prototype.Browser.IE)
+   {
+      input_html_width = $(input_html).getWidth();
+      browser_offset = 6;
+   }
+   else if (Prototype.Browser.Opera)
+   {
+      browser_offset = 2;
+   }
+   else if (Prototype.Browser.WebKit)
+   {
+      browser_offset = -2;
+   }
+   
+   
+   input_html.style.width=(input_html_width
+                           - (error_symbol_width + browser_offset)
+                          )+"px";
+}
+
+CO.Validator.prototype.setLabelClassForError=function(add_class /*boolean*/, input_element)
+{
+   var input_html = nvl(input_element, this.input_html);
+   var labels = $$("label[for='"+input_html.id+"']");
+   
+   if(add_class)
+   {
+      labels.each(function(s){
+         s.addClassName("validateError");
+      });    
+   }
+   else
+   {
+      labels.each(function(s){s.removeClassName("validateError")})
+   }
+}
+
+CO.Validator.prototype.getHtmlInputId=function()
+{
+  if ( this.input_html == undefined )
+    return( undefined );
+  
+  return this.input_html.id;
+}
+
+CO.Validator.prototype.getLength=function( pString )
+{
+   return getLengthForValidator( pString );
+} 
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * RequiredValidator
+ */
+CO.RequiredValidator = Class.create(CO.Validator
+                                   ,{
+                             initialize: function($super,input_html)
+                                       {
+                                          $super(input_html);
+                                          this.type="RequiredValidator";
+                                          
+                                          input_html.setAttribute("aria-required","true"); 
+                                       }
+                           });
+
+CO.RequiredValidator.prototype.validate = function()
+{
+    this.removeError();
+    
+    var vText = Text.Pflichtfeld.replace("LABEL", this.input_html.getName()).get();
+
+    switch( this.input_html.type )
+    {
+        case "checkbox":
+            if ( ! this.input_html.checked )
+            {
+                this.addError(vText);
+                return false;
+            }
+            break;
+        default:
+            //if (nvl(this.input_html.value,"") == "")
+            if( ! this.input_html.present() )
+            {
+                this.addError(vText);
+                return false;
+            }
+            
+            break;            
+    }
+    
+
+
+    return true;
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * NOfMValidator (for Components)
+ */
+CO.NOfMValidator = Class.create({
+                             initialize: function(input_html_elements, group, min, max)
+                                       {
+                                                        this.type="NOfMValidator";
+                                                        this.input_html_elements = input_html_elements;
+                                                        this.group = group;
+                                                        this.min = min;
+                                                        this.max = max;
+                                                        this.error_object = undefined;
+                                                        this.setFieldNameList();
+
+
+                                                        if(min === undefined)
+                                                        {
+                                                            this.group_type = 'MaxV'; //MaxValidator
+                                                        }
+
+                                                        if(max === undefined)
+                                                        {
+                                                            this.group_type = 'MinV'; //MinValidator
+                                                        }
+
+                                                        if((min != undefined) && (max != undefined))
+                                                        {
+                                                            this.group_type = 'NofM'; //NofMValidator
+                                                        }
+
+                                                        if((min === undefined) && (max === undefined))
+                                                        {
+                                                           throw(new Error(1, "Either min or max has to be set !"));
+                                                        }
+                                       }
+                           });
+
+CO.NOfMValidator.prototype.getHtmlInputId=function()
+{
+  if ( this.input_html_elements.length > 0 )
+  {
+    return this.input_html_elements[ 0 ].id;
+  }
+
+  return( undefined );
+}
+
+CO.NOfMValidator.prototype.addError=function(error_string)
+{
+    // we write only one message
+    this.error_object = this.input_html_elements[0].addError(error_string);
+
+    //.. but create many errorsymbols
+    for (var i = 0; i < this.input_html_elements.length; i++)
+    {  
+       CO.Validator.prototype.setLabelClassForError(true, this.input_html_elements[i]);
+       CO.Validator.prototype.prependId2AriaDescribedBy(this.input_html_elements[i], this.error_object.identify());
+       
+       
+       /* setting aria invalid also for custom html components */
+       if(this.input_html_elements[i].setAriaInvalid != undefined) 
+       {
+          this.input_html_elements[i].setAriaInvalid(true);
+       } 
+       else 
+       {
+          this.input_html_elements[i].setAttribute("aria-invalid", "true");
+       }
+    }
+}
+
+CO.NOfMValidator.prototype.removeError=function()
+{
+    var error_symbol;
+    var error_object_id;
+
+    if(this.error_object != undefined)
+    {
+        CO.msg.remove(this.error_object);
+        error_object_id = this.error_object.identify();
+        this.error_object = undefined;
+
+        for (var i = 0; i < this.input_html_elements.length; i++)
+        {
+           CO.Validator.prototype.removeIdFromAriaDescribedBy(this.input_html_elements[i],error_object_id);
+           CO.Validator.prototype.setLabelClassForError(false, this.input_html_elements[i]); 
+           
+           
+           /* setting aria invalid also for custom html components */
+           if(this.input_html_elements[i].setAriaInvalid != undefined) 
+           {
+              this.input_html_elements[i].setAriaInvalid(false);
+           } 
+           else 
+           {
+              this.input_html_elements[i].setAttribute("aria-invalid", "false");
+           }
+            
+        }
+    }
+}
+
+
+CO.NOfMValidator.prototype.setHTMLElements=function(input_html_elements)
+{
+    this.input_html_elements = input_html_elements;
+}
+
+CO.NOfMValidator.prototype.getHTMLElements=function()
+{
+    return this.input_html_elements;
+}
+
+
+CO.NOfMValidator.prototype.setFieldNameList=function()
+{
+    var field_name_list = "";
+
+    for (var i=0; i < this.input_html_elements.length; i++)
+    {
+        field_name_list += ", "+ this.input_html_elements[i].getName();
+    }
+
+    //" ," will be cutted
+    this.field_name_list = field_name_list.substr(2);
+}
+
+CO.NOfMValidator.prototype.validate = function()
+{
+    this.removeError();
+
+    switch(this.group_type)
+    {
+        case "MinV" : return this.validateMin();
+        case "MaxV" : return this.validateMax();
+        case "NofM" : return this.validateMinMax();
+    }
+}
+
+
+CO.NOfMValidator.prototype.validateMin = function()
+{
+    var vText = Text.NofMMin.replace("MIN", this.min).replace("FIELDLIST", this.field_name_list).get();
+    var counter = this.getNumberOfFilledFields();
+
+    if (counter < this.min)
+    {
+        this.addError(vText);
+        return false;
+    }
+    return true;
+}
+
+CO.NOfMValidator.prototype.validateMax = function()
+{
+    var vText = Text.NofMMax.replace("MAX", this.max).replace("FIELDLIST", this.field_name_list).get();
+    var counter = this.getNumberOfFilledFields();
+
+    if (counter > this.max)
+    {
+        this.addError(vText);
+        return false;
+    }
+    return true;
+}
+
+CO.NOfMValidator.prototype.validateMinMax = function()
+{
+    var vText = Text.NofMMinMax.replace("MIN", this.min)
+                        .replace("MAX", this.max)
+                        .replace("FIELDLIST", this.field_name_list).get();
+
+    var counter = this.getNumberOfFilledFields();
+
+    if ((counter < this.min)||(counter > this.max))
+    {
+        this.addError(vText);
+        return false;
+    }
+    return true;
+}
+
+CO.NOfMValidator.prototype.getNumberOfFilledFields=function()
+{
+    var counter=0;
+
+    for(var i=0; i < this.input_html_elements.length; i++)
+    {
+      var vValue;
+      
+      if ( this.input_html_elements[i].options === undefined )
+      {
+        vValue = this.input_html_elements[i].value;
+      }
+      else // select lists
+      {
+        vValue = this.input_html_elements[i].options[ this.input_html_elements[i].selectedIndex ].value;
+      }
+      
+      if (nvl(vValue,"") != "")
+        counter++;
+    }
+
+    return counter;
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * N of M OptionsValidator (coCheckBoxGroup, coRadioButtonGroup, coSelectList)
+ *
+ * @author Dva
+ * @date   Jan. 2009
+ */
+CO.NofMOptionsValidator = Class.create(CO.Validator, {
+  initialize: function( $super, pParentContainerId, pInputHtmlArray, pMin, pMax ) {
+    if ( pInputHtmlArray == undefined )
+      return;
+    
+    if ( pInputHtmlArray.options === undefined )
+    {
+      $super( $( pParentContainerId ) );
+      this.inputHtmlArray = pInputHtmlArray;
+      this.selectType = "checked";
+    }
+    else
+    {
+      $super( $( pInputHtmlArray ) );
+      this.inputHtmlArray = pInputHtmlArray.options;
+      this.selectType = "selected";
+    }
+
+    this.type = "NofMOptionsValidator";
+    this.min = pMin;
+    this.max = pMax;
+
+    if ( pMin === undefined )
+      this.min = 1;
+
+    if ( pMax === undefined )
+      this.max = this.inputHtmlArray.length;
+
+    if ( this.min < 1 )
+      this.min = 0;
+
+    if ( this.max > this.inputHtmlArray.length)
+      this.max = this.inputHtmlArray.length;
+
+    if ( this.max < this.min && this.max > 0)
+      throw( new Error( 1, "Parameter pMax must be greater than or equal to pMin!" ) );
+  }
+});
+
+// ----------------------------------------------------------------------------
+CO.NofMOptionsValidator.prototype.validate = function() {
+
+  this.removeError();
+
+  // get checked field count
+  var vCounter = 0;
+
+  for ( var idx = 0; idx < this.inputHtmlArray.length; idx++ )
+  {
+    if ( this.selectType == "selected" )
+    {
+      if ( ( this.inputHtmlArray[ idx ].selected ) && ( nvl( this.inputHtmlArray[ idx ].value, "" ) != "" ) )
+        vCounter++;
+    }
+    else
+    {
+      if ( this.inputHtmlArray[ idx ].checked )
+        vCounter++;
+    }
+  }
+
+  if ( ( vCounter < this.min ) || ( vCounter > this.max ) )
+  {
+    var vErrObj;
+
+    if ( ( this.min < 1 ) && ( this.max >= 1 ) )
+      vErrObj = Text.NofMChoiceMax.replace( "MAX", this.max );
+    else if ( ( this.min == 1 ) && ( this.max == this.inputHtmlArray.length ) )
+      vErrObj = Text.NofMChoiceOne;
+    else if ( ( this.min == 1 ) && ( this.max == 1 ) )
+      vErrObj = Text.NofMChoiceRequired;
+    else if ( ( ( this.min > 1 ) && ( this.max == this.inputHtmlArray.length ) ) || ( this.min == this.max ) )
+      vErrObj = Text.NofMChoiceMin.replace( "MIN", this.min );
+    else if ( ( this.min >= 1 ) && ( this.max > 1 ) )
+      vErrObj = Text.NofMChoiceMinMax.replace( "MIN", this.min ).replace( "MAX", this.max );
+
+    this.addError( vErrObj.replace( "LABEL", this.input_html.getName() ).get() );
+    return( false );
+  }
+
+  return( true );
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * DateValidator
+ */
+CO.DateValidator = Class.create(
+  CO.Validator, {
+    initialize: function($super, input_html) {
+      $super(input_html);
+      this.type="DateValidator";
+   }
+  }
+);
+
+CO.DateValidator.prototype.getAriaDescriptionString=function()
+{
+   var dateformat = this.input_html.co.dateFormat;
+   
+   if((dateformat["mMax"]!= undefined)&&(dateformat["mMin"]!= undefined))
+   {
+      return Text.AriaDatumZwischen.replace("MIN_DATE", dateformat["mMin"])
+                                   .replace("MAX_DATE", dateformat["mMax"])
+                                   .replace("FORMAT", dateformat["mFormat"])             
+                                   .get();
+   }
+   else if (dateformat["mMax"]!= undefined)
+   {
+      return Text.AriaDatumKleinerAls.replace("MAX_DATE", dateformat["mMax"])
+                                     .replace("FORMAT", dateformat["mFormat"])             
+                                     .get();
+   }
+   else if (dateformat["mMin"]!= undefined)
+   {
+      return Text.AriaDatumGroesserAls.replace("MIN_DATE", dateformat["mMin"])
+                                      .replace("FORMAT", dateformat["mFormat"])             
+                                      .get();
+   }
+   else
+   {
+      return Text.AriaDatum.replace("FORMAT", dateformat["mFormat"])             
+                                    .get();
+   }
+}
+
+CO.DateValidator.prototype.convertToDate = function(pDate, pFormat)
+{
+    /* Hudri, SR 23836, nur jene Teile ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼berprÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼fen die auch tatsÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¤chlich Bestandteil des Formatspecifiers sind
+     * (wegen x.indexOf(y) = -1 und substr mit neg. Position) und Jahreszahlen in der richtigen LÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¤nge ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼berprÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼fen
+    var vDayString = pDate.substr(pFormat.toUpperCase().indexOf("DD"), 2);
+    var vMonthString = pDate.substr(pFormat.toUpperCase().indexOf("MM"), 2);
+    var vYearString = pDate.substr(pFormat.toUpperCase().indexOf("YY"), 4);
+    **/
+
+    var vDayString = 1;
+    var day_str_pos = pFormat.toUpperCase().indexOf("DD");
+    if (day_str_pos >= 0) {
+      vDayString = pDate.substr(day_str_pos, 2);
+    }
+    
+    var vMonthString = 0;
+    var month_str_pos = pFormat.toUpperCase().indexOf("MM");
+    if (month_str_pos >= 0) {
+      vMonthString = (parseInt(pDate.substr(month_str_pos, 2)) - 1).toString();
+    }
+    
+    var vYearString = 2000;
+    var year_str_pos = pFormat.toUpperCase().indexOf("YYYY");
+    if (year_str_pos >= 0) {
+      vYearString = pDate.substr(year_str_pos, 4);
+    } else {
+      year_str_pos  = pFormat.toUpperCase().indexOf("YY");
+      if (year_str_pos >= 0) {
+        vYearString = "20" + pDate.substr(year_str_pos, 2);
+      }
+    }
+
+    var vHourOffset    = ( ( ( pFormat.indexOf( "HH24" ) != -1  ) || ( pFormat.indexOf( "HH12" ) != -1 ) ) ? 2 : 0 );
+    var vHourString    = 0;
+    var vMinuteString  = 0;
+    var vSecondsString = 0;
+    
+    if ( pFormat.toUpperCase().indexOf("HH") != -1 )
+      vHourString = pDate.substr(pFormat.toUpperCase().indexOf("HH"), 2);
+    
+    if ( pFormat.toUpperCase().indexOf("MI") != -1 )
+      vMinuteString = pDate.substr(pFormat.toUpperCase().indexOf("MI") - vHourOffset, 2);
+      
+    if ( pFormat.toUpperCase().indexOf("SS") != -1 )
+      vSecondsString = pDate.substr(pFormat.toUpperCase().indexOf("SS") - vHourOffset, 2);
+
+    return ( new Date(vYearString, vMonthString, vDayString, vHourString, vMinuteString, vSecondsString) );
+}
+
+/**
+ * Versucht einen gegebenen Eingabestring in das gewÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼nschte Datumsformat zu konvertieren,
+ * um dem Benutzer eine schnelle Eingabe eines Datums zu erlauben.
+ * Als Trennzeichen im Eingabestring werden folgende Zeichen erkannt: Beistrich, Punkt, 
+ * Bindestrich, Forward-Slash, Doppelpunkt und Leerzeichen.
+ * Wird das Format nicht erkannt, wird der originale Eingabestring zurÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼ckgeliefert.
+ * Rule: bei unvollstÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¤ndiger Eingabe des Jahres (weniger als 4 Stellen), wird immer
+ * auf 2000 aufgefÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼llt (kein RÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼cksprung auf 1900!).
+ * 
+ * @param  pValue (String) , Eingabe des Benutzers, z.B. '13.2.9 13.25'
+ * @param  pFormat (String), gewÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼nschtes Datumformat, z.B. 'DD.MM.YYYY HH24:MI'
+ * @author Elch
+ * @date   21.01.2009
+ */
+CO.DateValidator.prototype.guessDateFormat = function(pValue, pFormat) {
+   var vFormatFragments = pFormat.split(/\,|\.|\-|\/|\s|:/);
+   var vValueFragments  = pValue.split(/\,|\.|\-|\/|\s|:/);
+   
+  if (vValueFragments.length == vFormatFragments.length) {
+    for (i = 0; i < vFormatFragments.length; i++) {
+      if (vFormatFragments[i].indexOf("Y") == -1) {
+        vValueFragments[i] = ((vValueFragments[i].length == 1) ? "0" : "") + vValueFragments[i];
+      }
+      /* Hudri, SR 23836, anpassen an 2 bzw. 4stellige Jahresangaben) */
+      else if (vFormatFragments[i].indexOf("YYYY") >= 0) {
+        switch (vValueFragments[i].length) {
+          case 1: vValueFragments[i] = "200" + vValueFragments[i]; break;
+          case 2: vValueFragments[i] = "20"  + vValueFragments[i]; break;
+          case 3: vValueFragments[i] = "2"   + vValueFragments[i]; break;
+        }
+      }
+      else if (vFormatFragments[i].indexOf("YY") >= 0) {
+        switch (vValueFragments[i].length) {
+          case 1: vValueFragments[i] = "0" + vValueFragments[i]; break;
+          case 2: break;
+          case 3: vValueFragments[i] = vValueFragments[i].substr(1, 2); break;
+          case 4: vValueFragments[i] = vValueFragments[i].substr(2, 2); break;
+        }
+      }  
+      pFormat = pFormat.replace(vFormatFragments[i], vValueFragments[i]);
+    }
+    return pFormat;
+  }
+  else {
+    return pValue; // das Erraten des Datumsformats ist leider nicht erfolgreich
+  }
+}
+
+CO.DateValidator.prototype.validate = function()
+{
+    this.removeError();
+
+    var vValue = this.input_html.value;
+
+     if (nvl(vValue, "") == "") {
+        return true;
+    }
+    
+    // guess date format
+    vValue = this.guessDateFormat( vValue, this.input_html.co.dateFormat.mFormat );
+    this.input_html.value = vValue;
+    
+    var vFormat = {
+        mMin: null,
+        mMax: null,
+        mFormat: null
+    };
+
+    vFormat = Object.extend(vFormat, this.input_html.co.dateFormat);
+
+    var vForm = String(vFormat.mFormat);
+    
+
+    var vHourOffset = ( ( ( vForm.indexOf( "HH24" ) != -1  ) || ( vForm.indexOf( "HH12" ) != -1 ) ) ? 2 : 0 );
+    var vFormatLength = vForm.length - vHourOffset;
+
+    if (vFormatLength != vValue.length)
+    {
+      this.addError(Text.DatumUngueltig.replace( "LABEL", this.input_html.getName() ).get());
+      return false;
+    }
+    
+    /* Hudri, SR 23836, nur jene Teile ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼berprÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼fen die auch tatsÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¤chlich Bestandteil des Formatspecifiers sind
+     * (wegen x.indexOf(y) = -1 und substr mit neg. Position) und Jahreszahlen in der richtigen LÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¤nge ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼berprÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼fen
+    var day   = vValue.substr(vForm.toUpperCase().indexOf("DD"), 2);
+    var month = vValue.substr(vForm.toUpperCase().indexOf("MM"), 2);
+    var year  = vValue.substr(vForm.toUpperCase().indexOf("YY"), 4);
+    **/
+    
+    /* die Default-Werte sind die selben wie in isValidDate */
+    var day = 1;
+    var day_str_pos = vForm.toUpperCase().indexOf("DD");
+    if (day_str_pos >= 0) {
+      day = vValue.substr(day_str_pos, 2);
+    }
+    
+    var month = 1;
+    var month_str_pos = vForm.toUpperCase().indexOf("MM");
+    if (month_str_pos >= 0) {
+      month = vValue.substr(month_str_pos, 2);
+    }
+    
+    var year = 2000;
+    var year_str_pos = vForm.toUpperCase().indexOf("YYYY");
+    if (year_str_pos >= 0) {
+      year = vValue.substr(year_str_pos, 4);
+    } else {
+      year_str_pos  = vForm.toUpperCase().indexOf("YY");
+      if (year_str_pos >= 0) {
+        year = "20" + vValue.substr(year_str_pos, 2);
+      }
+    }
+    
+    // check date
+    if (this.isNaNOrWhitespace(day) || this.isNaNOrWhitespace(month) || this.isNaNOrWhitespace(year))
+    {
+        this.addError(Text.DatumUngueltig.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    if (!this.IsValidDate(day, month, year))
+    {
+        this.addError(Text.DatumUngueltig.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+    
+    // check time
+    var hour     = 0;
+    var minute   = 0;
+    var second   = 0;
+
+    if ( vForm.toUpperCase().indexOf("HH") != -1 )
+      hour = vValue.substr( vForm.toUpperCase().indexOf("HH"), 2 );
+
+
+    if ( vForm.toUpperCase().indexOf("MI") != -1 )
+      minute = vValue.substr( vForm.toUpperCase().indexOf("MI") - vHourOffset, 2 );
+
+    if ( vForm.toUpperCase().indexOf("SS") != -1 )
+      second = vValue.substr( vForm.toUpperCase().indexOf("SS") - vHourOffset, 2 );
+
+    
+    if (this.isNaNOrWhitespace(hour) || this.isNaNOrWhitespace(minute) || this.isNaNOrWhitespace(second))
+    {
+        this.addError(Text.ZeitUngueltig.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    if (!this.IsValidTime(hour, minute, second))
+    {
+        this.addError(Text.ZeitUngueltig.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+
+    var vDateVal = this.convertToDate( vValue, vFormat.mFormat );
+
+    //Ist Datum/Zeit zu klein
+    if (vFormat.mMin != null)
+    {
+        var vMinDate = this.convertToDate(vFormat.mMin, vFormat.mFormat);
+
+        if (vDateVal < vMinDate)
+        {
+            var vText = Text.DatumZuKlein.replace( "LABEL", this.input_html.getName() ).replace("DATUM", vFormat.mMin).get();
+            this.addError(vText);
+            return false;
+        }
+    }
+    
+    //Ist Datum/Zeit zu gross?
+    if (vFormat.mMax != null)
+    {
+        var vMaxDate = this.convertToDate(vFormat.mMax, vFormat.mFormat);
+
+        if (vDateVal > vMaxDate)
+        {
+               var vText = Text.DatumZuGross.replace( "LABEL", this.input_html.getName() ).replace("DATUM", vFormat.mMax).get();
+            this.addError(vText);
+            return false;
+        }
+    }
+    
+    // Dynamisch vergleichen mit Wert aus anderem Date-Input?
+    if ( vFormat.mLargerThanID != null )
+    {
+      var vFromDate;
+      try {
+        vFromDate = this.convertToDate( $F(vFormat.mLargerThanID), vFormat.mFormat );
+      }
+      catch (e)
+      {
+        //wenn im anderen Feld keine gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼ltige Zeit dann Check nicht machen
+        return true;
+      }
+      if (vFromDate >= vDateVal) {
+           var vText = Text.DatumGroesserAls.replace( "LABEL1", this.input_html.getName() ).replace( "LABEL2", 
+
+$(vFormat.mLargerThanID).getName() ).get();
+        this.addError( vText );
+        return false;
+      }
+    }
+
+    return true;
+}
+
+CO.DateValidator.prototype.IsValidDate = function(Day, Mn, Yr)
+{
+    var DateVal = nvl(Mn, 1) + "/" + nvl(Day, 1) + "/" + nvl(Yr, 2000);
+    var dt = new Date(DateVal);
+
+    /*
+     Javascript Dates are a little too forgiving and will change the date to a reasonable
+     guess if it's invalid. We'll use this to our advantage by creating the date object
+     and then comparing it to the details we put it. If the Date object is different,
+     then it must have been an invalid date to start with...
+     */
+    if (dt.getDate() != Day)
+    {
+        return false;
+    }
+    else
+        if ((dt.getMonth() + 1) != Mn) //this is for the purpose JavaScript starts the month from 0
+        {
+            return false;
+        }
+
+        else
+            if (dt.getFullYear() != Yr)
+            {
+              if (dt.getYear() != Yr)
+                return false;
+            }
+
+    this.removeError();
+    return true;
+}
+
+CO.DateValidator.prototype.IsValidTime = function(hr, mi, se)
+{
+  var time = new Date( 1970, 1, 1, nvl( hr, 0 ), nvl( mi, 0 ), nvl( se, 0 ) );
+
+   if ((time.getHours() != nvl( hr, 0 )) || (time.getMinutes() != nvl( mi, 0 )) || (time.getSeconds() != nvl( se, 0 )))
+   {
+      return false;
+   }
+   else
+   {
+      return true;
+   }
+}
+
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * StringValidator
+ */
+CO.StringValidator = Class.create(CO.Validator
+                                 ,{
+                             initialize: function($super, input_html)
+                                       {
+                                          $super(input_html);
+                                                        this.type="StringValidator";
+                                       }
+                         } );
+
+CO.StringValidator.prototype.validate = function()
+{
+   this.removeError();
+
+   var vValue          = this.input_html.value;
+   var vTrimmedText    = this.input_html.value.replace(/^\s+|\s+$/g,"");
+   var vValueLowerCase = vTrimmedText.toLowerCase();
+   var vValueUpperCase = vTrimmedText.toUpperCase();
+   var vTextLength     = vTrimmedText.length;
+   var char_count      = (this.input_html.tagName === 'TEXTAREA') ? this.getLength(vValue) : countUtf8Chars(vValue);
+   var vFormat = {
+     mMinLen: null,
+     mMaxLen: null,
+     mCase:   null,
+     mRegEx:  null
+   };
+   vFormat = Object.extend(vFormat, this.input_html.co.stringFormat);
+
+   if (nvl(vValue, "") == "")
+    {
+        return true;
+    }
+
+    switch (vFormat.mCase) {
+
+        case gVC.ftLowerCase:
+            if ( vTrimmedText != vValueLowerCase ){
+                this.addError(Text.LowerCaseOnly.replace( "LABEL", this.input_html.getName() ).get());
+                return false;
+            }
+            break;
+
+        case gVC.ftUpperCase:
+            if ( vTrimmedText != vValueUpperCase ){
+                this.addError(Text.UpperCaseOnly.replace( "LABEL", this.input_html.getName() ).get());
+                return false;
+            }
+            break;
+
+        case gVC.ftCamelCase:
+            if ( ( vTextLength > 1 ) && ((vValueLowerCase == vTrimmedText)  || (vValueUpperCase == vTrimmedText) ) ) {
+                this.addError(Text.CamelCase.replace( "LABEL", this.input_html.getName() ).get());
+                return false;
+            }
+            break;
+    }
+
+
+    if ((nvl(vFormat.mMaxLen, 0) != 0) && (char_count > vFormat.mMaxLen))
+    {
+        this.addError(Text.StringZuLang.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    if ((nvl(vFormat.mMinLen, 0) != 0) && (char_count < vFormat.mMinLen))
+    {
+        this.addError(Text.StringZuKurz.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+    
+    if ((nvl(vFormat.mRegEx, "") != "") && (!vValue.match(vFormat.mRegEx)))
+    {
+        this.addError(Text.StringFormatFalsch.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    return true;
+}
+
+
+
+CO.StringValidator.prototype.getAriaDescriptionString=function()
+{
+   if (this.input_html.co.stringFormat["mFormatString"] != null)
+   {
+      return this.input_html.co.stringFormat.mFormatString;  
+   }
+   
+   return null;
+}
+//------------------------------------------------------------------------------------------------------------
+//ComboBox-Validator
+CO.ComboBoxValidator = Class.create(CO.Validator
+                                 ,{
+                             initialize: function($super, input_html)
+                                       {
+                                          $super(input_html);
+                                                        this.type="StringValidator";
+                                       }
+                         } );
+
+CO.ComboBoxValidator.prototype.validate = function()
+{
+    this.removeError();
+
+    if(this.input_html.as.isWaitingForCallback())
+    {
+       this.addError(Text.ComboBoxWaiting.replace( "LABEL", this.input_html.getName() ).get());
+       return false;   
+    }
+    
+    return true;
+}
+
+
+
+
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * EmailValidator
+ */
+CO.EmailValidator = Class.create(CO.Validator
+                                ,{
+                             initialize: function($super, input_html)
+                                       {
+                                          $super(input_html);
+                                                        this.type="EmailValidator";
+                                       }
+                         });
+
+CO.EmailValidator.prototype.validate = function()
+{
+    var vValue = this.input_html.value;
+    
+    var vFormat = {
+        mAllowNamePhrase: false
+    };
+    vFormat = Object.extend(vFormat, this.input_html.co.EmailFormat);
+    
+    this.removeError();
+     
+    if (nvl(vValue, "") == "")
+    {
+        return true;
+    }
+    
+    if ( !this.isEmailValid(vValue, vFormat.mAllowNamePhrase) )
+    {
+        this.addError(Text.EmailUngueltig.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }    
+    
+    return true;
+}
+
+CO.EmailValidator.prototype.isEmailValid = function( pValue, pAllowNamePhrase )
+{  
+   var vEmailStr = pValue.strip();
+   
+   if (pAllowNamePhrase) {
+      var vEmailStartPos = vEmailStr.lastIndexOf(' <');
+      var vEmailAddress;
+      var vEmailNamePhrase;
+      
+      if (vEmailStartPos == -1) {
+         vEmailAddress = this.removeStartAndEndChar(vEmailStr, '<', '>');
+      } else { 
+         vEmailNamePhrase = this.removeStartAndEndChar(vEmailStr.substring(0, vEmailStartPos).strip(), '"', '"'); 
+         vEmailAddress =  this.removeStartAndEndChar(vEmailStr.substring(vEmailStartPos).strip(), '<', '>');
+      }
+      if (!this.isEmailAddressValid(vEmailAddress)) {
+         return false;
+      }  
+      if (vEmailNamePhrase != null && !this.isNamePhraseValid(vEmailNamePhrase)) {
+         return false;
+      }
+   } else {
+      if (!this.isEmailAddressValid(vEmailStr)) {
+         return false;
+      }     
+   }
+   return true;   
+}
+
+CO.EmailValidator.prototype.removeStartAndEndChar=function( pInput, pFirstChar, pLastChar )
+{
+   var vIdxFirst = pInput.indexOf(pFirstChar);
+   var vIdxLast  = pInput.lastIndexOf(pLastChar);
+   
+   if (vIdxFirst == 0 && vIdxLast == pInput.length - 1) {   
+     return pInput.substring(vIdxFirst + 1, vIdxLast - vIdxFirst).strip();
+   }
+   return pInput;
+}
+
+CO.EmailValidator.prototype.isNamePhraseValid=function( pNamePhrase )
+{
+   if (pNamePhrase.match(/^.*[<>"].*$/)) {
+      return false;
+   }
+   return true;
+}
+
+CO.EmailValidator.prototype.isEmailAddressValid=function( pAddress )
+{
+   //var emailPattern = /^([a-zA-Z0-9]{1,2}|[a-zA-Z0-9][a-zA-Z0-9._+-]{1,62}[a-zA-Z0-9_+-])@(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])\.?)+$/;
+   var emailPattern = /^([a-z0-9]{1,2}|[a-z0-9][a-z0-9._+-]{1,62}[a-z0-9_+-])@(([a-z0-9]|[a-z0-9][a-z0-9-]*[a-z0-9])\.)+(([a-z0-9]|[a-z0-9][a-z0-9-]*[a-z0-9]))$/i;
+  
+   if (   pAddress.length > 254 ||  pAddress.indexOf('..') != -1  || pAddress.lastIndexOf('.') == pAddress.length - 1){
+      return false;
+   }
+   //return pAddress.match(/^([a-z0-9_+-]{1,2}|[a-z0-9_+-][a-z0-9_+.-]{1,62}[a-z0-9_+])@(([a-z0-9]|[a-z0-9][a-z0-9-]*[a-z0-9])\.?)+$/i);
+   return emailPattern.test(pAddress);
+} 
+
+CO.EmailValidator.prototype.getAriaDescriptionString=function()
+{
+   return Text.AriaEmailEingabe.get();
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * URLValidator
+ */
+CO.URLValidator = Class.create(CO.Validator
+                              ,{
+                             initialize: function($super, input_html)
+                                       {
+                                          $super(input_html);
+                                                        this.type="URLValidator";
+                                       }
+                        });
+                        
+CO.URLValidator.prototype.isValidUrl=function(text)
+{
+  //return /^([a-z][a-z0-9+\-.]*:(\/\/([a-z0-9\-._~%!$&'()*+,;=]+@)?([a-z0-9\-._~%]+|\[[a-f0-9:.]+\]|\[v[a-f0-9][a-z0-9\-._~%!$&'()*+,;=:]+\])(:[0-9]+)?(\/[a-z0-9\-._~%!$&'()*+,;=:@]+)*\/?|(\/?[a-z0-9\-._~%!$&'()*+,;=:@]+(\/[a-z0-9\-._~%!$&'()*+,;=:@]+)*\/?)?)|([a-z0-9\-._~%!$&'()*+,;=@]+(\/[a-z0-9\-._~%!$&'()*+,;=:@]+)*\/?|(\/[a-z0-9\-._~%!$&'()*+,;=:@]+)+\/?))(\?[a-z0-9\-._~%!$&'()*+,;=:@\/?]*)?(#[a-z0-9\-._~%!$&'()*+,;=:@\/?]*)?$/i.test(text); 
+  return /^([a-z][a-z0-9+\-.]*:(\/\/([a-z0-9\-._~%!$&'()*+,;=]+[:]?[a-z0-9\-._~%!$&'()*+,;=]*@)?([a-z0-9\-._~%]+|\[[a-f0-9:.]+\]|\[v[a-f0-9][a-z0-9\-._~%!$&'()*+,;=:]+\])(:[0-9]+)?(\/[a-z0-9\-._~%!$&'()*+,;=:@]+)*\/?|(\/?[a-z0-9\-._~%!$&'()*+,;=:@]+(\/[a-z0-9\-._~%!$&'()*+,;=:@]+)*\/?)?)|([a-z0-9\-._~%!$&'()*+,;=@]+(\/[a-z0-9\-._~%!$&'()*+,;=:@]+)*\/?|(\/[a-z0-9\-._~%!$&'()*+,;=:@]+)+\/?))(\?[a-z0-9\-._~%!$&'()*+,;=:@\/?]*)?(#[a-z0-9\-._~%!$&'()*+,;=:@\/?]*)?$/i.test(text);  //[a-z0-9\-._~%!$&'()*+,;=]?
+}  
+
+CO.URLValidator.prototype.hasValidUrlProtocoll=function(text)
+{
+   return /^(http|ftp|https)\:\/\//i.test(text);
+}
+                      
+
+CO.URLValidator.prototype.validate = function()
+{
+
+    var vValue = this.input_html.value;
+
+    this.removeError();
+    var vFormat = {
+        mProtokoll: null
+    };
+
+    vFormat = Object.extend(vFormat, this.input_html.co.URLFormat);
+
+   if (nvl(vValue, "") == "")
+    {
+        return true;
+    }
+
+    if (nvl(vFormat.mProtokoll, false))
+    {
+        if (!this.hasValidUrlProtocoll(vValue) || !this.isValidUrl(vValue))
+        {
+            this.addError(Text.URLUngueltig.replace( "LABEL", this.input_html.getName() ).get());
+            return false;
+        }
+    }
+    else
+    {
+        if (!this.isValidUrl(vValue))
+        {
+            this.addError(Text.URLUngueltig.replace( "LABEL", this.input_html.getName() ).get());
+            return false;
+        }
+
+    }
+
+    return true;
+}
+
+
+CO.URLValidator.prototype.getAriaDescriptionString=function()
+{
+   return Text.AriaUrlEingabe.replace("FORMAT_STRING", this.input_html.co.URLFormat.mUrlFormatString)
+                             .get();
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * TelefonValidator
+ */
+CO.TelefonValidator = Class.create(CO.Validator
+                                   ,{
+                             initialize: function($super, input_html)
+                                       {
+                                          $super(input_html);
+                                                        this.type="TelefonValidator";
+                                       }
+                             });
+
+CO.TelefonValidator.prototype.validate = function(){
+    var vValue = this.input_html.value;
+
+    this.removeError();
+    if (nvl(vValue, "") == "")
+    {
+        return true;
+    }
+    //  internationales Format laut ITU-T
+    //  +, country code, network prefix without the leading 0, number, no spaces, only numerals.
+    if (!vValue.match(/^\+[1-9]{1}[0-9]{7,20}$/i))
+    {
+        this.addError(Text.TelefonUngueltig.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+    return true;
+    //hier checken welches RegEx sinnvoll ist!
+    //  internationales Format laut ITU-T
+    //  +, country code, network prefix without the leading 0, number, no spaces, only numerals.
+    //     For example, the UK number 07777123456 becomes +447777123456.
+    //     The number 44 is the country code for the UK.
+    //phoneRe = /^((\+\d{1,3}(-| )?\(?\d\)?(-| )?\d{1,5})|(\(?\d{2,6}\)?))(-| )?(\d{3,4})(-| )?(\d{4})(( x| ext)\d{1,5}){0,1}$/
+    //phoneRe = /^(\(?\+?[0-9]*\)?)?[0-9_\- \(\)]*$/    Allows for an international dialing code at 
+    //                                                  the start and hyphenation and spaces that
+    //                                                  are sometimes entered for international
+    //                                                  phone numbers.
+}
+
+
+CO.TelefonValidator.prototype.getAriaDescriptionString=function()
+{
+   return Text.AriaTelefonFormatString.get();
+}
+//------------------------------------------------------------------------------------------------------------
+/**
+ * IntegerValidator
+ */
+CO.IntegerValidator = Class.create(CO.Validator
+                                   ,{
+                             initialize: function($super, input_html)
+                                       {
+                                          this.number_type = Text.AriaGanzZahl.get();
+                                          $super(input_html);
+                                          this.type="IntegerValidator";
+                                          this.ClientDecimalPoint = (10/3).toString().charAt(1);
+                                       }
+                             });
+
+CO.IntegerValidator.prototype.validate = function()
+{
+    var vValue = this.input_html.value;
+
+    if ( gVC.DecimalPoint != this.ClientDecimalPoint )
+    {
+        vValue = vValue.replace(gVC.DecimalPoint,this.ClientDecimalPoint);
+    }
+
+   this.removeError();
+
+    if (nvl(vValue, "") == "")
+    {
+        return true;
+    }
+
+    // FIXME
+    if ( vValue.indexOf(".") != -1 )
+    {
+        this.addError(Text.NurGanzeZahl.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    var vFormat = {
+        mMin: null,
+        mMax: null
+    };
+
+    if ((this.input_html["co"]!= null)&&(this.input_html.co["numFormat"] != null))
+    {
+       vFormat = Object.extend(vFormat, this.input_html.co.numFormat);   
+    }
+    
+
+    if ((vValue.blank()) || (this.isNaNOrWhitespace(vValue.strip())))
+    {
+        this.addError(Text.ZahlUngueltig.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    if ((vFormat.mMin != null) && (vFormat.mMin > Number(vValue)))
+    {
+        this.addError(Text.ZahlZuKlein.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    if ((vFormat.mMax != null) && (vFormat.mMax < Number(vValue)))
+    {
+        this.addError(Text.ZahlZuGross.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    return true;
+}
+
+CO.IntegerValidator.prototype.getAriaDescriptionString=function()
+{
+   return CO.NumberValidator.prototype.getAriaDescriptionString.call(this);
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * TimeValidator
+ */
+CO.TimeValidator = Class.create(
+  CO.Validator,{
+    initialize: function($super, input_html) {
+      $super(input_html);
+      this.type = "TimeValidator";
+    }
+  }
+);
+
+CO.TimeValidator.prototype.validate = function()
+{
+     this.removeError();
+
+    var vValue = nvl( this.mValue, this.input_html.value );
+     
+    if (nvl(vValue, "") == "")
+    {
+        return true;
+    }
+
+    var vFormat = {
+        mMax: null,
+        mMin: null,
+        mFormat: null
+    };
+
+    vFormat = Object.extend( vFormat, nvl( this.mTimeFormat, this.input_html.co.timeFormat ) );
+
+    var vForm = String(vFormat.mFormat);
+
+    var vHourOffset = ( ( ( vForm.indexOf( "HH24" ) != -1  ) || ( vForm.indexOf( "HH12" ) != -1 ) ) ? 2 : 0 );
+    var vFormatLength = vForm.length - vHourOffset;
+
+    if (vFormatLength != vValue.length)
+    {
+        this.addError(Text.ZeitUngueltig.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    var hour = null;
+    if ( vForm.toUpperCase().indexOf("HH") != -1 )
+      hour = vValue.substr(vForm.toUpperCase().indexOf("HH"), 2);
+    
+    var minute = null;
+    if ( vForm.toUpperCase().indexOf("MI") != -1 )
+      minute = vValue.substr(vForm.toUpperCase().indexOf("MI") - vHourOffset, 2);
+    
+    var second = null;
+    if ( vForm.toUpperCase().indexOf("SS") != -1 )
+      second = vValue.substr(vForm.toUpperCase().indexOf("SS") - vHourOffset, 2);
+    
+    if (this.isNaNOrWhitespace(hour) || this.isNaNOrWhitespace(minute) || this.isNaNOrWhitespace(second))
+    {
+        this.addError(Text.ZeitUngueltig.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+     if ( !this.IsValidTime( hour, minute, second ) )
+    {
+      this.addError(Text.ZeitUngueltig.replace( "LABEL", this.input_html.getName() ).get());
+      return false;
+    }
+
+    var vTimeValue = this.convertToTime( vValue, vFormat.mFormat );
+    // Zeit zu klein?
+    if ( vFormat.mMin != null )
+    {
+      var vMinTime = this.convertToTime( vFormat.mMin, vFormat.mFormat );
+
+      if ( vTimeValue < vMinTime )
+      {
+           var vText = Text.ZeitZuKlein.replace( "LABEL", this.input_html.getName() ).replace( "ZEIT", vFormat.mMin ).get();
+        this.addError( vText );
+        return( false );
+      }
+    }
+    
+    // Zeit zu groÃƒÆ’Ã†â€™Ãƒâ€¦Ã‚Â¸?
+    if ( vFormat.mMax != null )
+    {
+      var vMaxTime = this.convertToTime( vFormat.mMax, vFormat.mFormat );
+
+      if ( vTimeValue > vMaxTime )
+      {
+           var vText = Text.ZeitZuGross.replace( "LABEL", this.input_html.getName() ).replace( "ZEIT", vFormat.mMax ).get();
+        this.addError( vText );
+        return( false );
+      }
+    }
+    
+    // Dynamisch vergleichen mit Wert aus anderem Time-Input?
+    if ( vFormat.mLargerThanID != null )
+    {
+      var vFromTime;
+      try {
+        vFromTime = this.convertToTime( $F(vFormat.mLargerThanID), vFormat.mFormat );
+      }
+      catch (e)
+      {
+        //wenn im anderen Feld keine gÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼ltige Zeit dann Check nicht machen
+        return true;
+      }
+      if (vFromTime >= vTimeValue) {
+           var vText = Text.ZeitGroesserAls.replace( "LABEL1", this.input_html.getName() ).replace( "LABEL2", 
+
+$(vFormat.mLargerThanID).getName() ).get();
+        this.addError( vText );
+        return false;
+      }
+    }
+
+    return true;
+}
+
+CO.TimeValidator.prototype.IsValidTime = function(hr, mi, se)
+{
+  var time = new Date( 1970, 1, 1, nvl( hr, 0 ), nvl( mi, 0 ), nvl( se, 0 ) );
+
+   if ((time.getHours() != nvl( hr, 0 )) || (time.getMinutes() != nvl( mi, 0 )) || (time.getSeconds() != nvl( se, 0 )))
+   {
+      return false;
+   }
+   else
+   {
+      return true;
+   }
+}
+
+CO.TimeValidator.prototype.convertToTime = function(pTime, pFormat)
+{
+    var vHourOffset    = ( ( ( pFormat.indexOf( "HH24" ) != -1  ) || ( pFormat.indexOf( "HH12" ) != -1 ) ) ? 2 : 0 );
+    var vHourString    = 0;
+    var vMinuteString  = 0;
+    var vSecondsString = 0;
+    
+    if ( pFormat.toUpperCase().indexOf("HH") != -1 )
+      vHourString = pTime.substr(pFormat.toUpperCase().indexOf("HH"), 2);
+    
+    if ( pFormat.toUpperCase().indexOf("MI") != -1 )
+      vMinuteString = pTime.substr(pFormat.toUpperCase().indexOf("MI") - vHourOffset, 2);
+      
+    if ( pFormat.toUpperCase().indexOf("SS") != -1 )
+      vSecondsString = pTime.substr(pFormat.toUpperCase().indexOf("SS") - vHourOffset, 2);
+    
+    // date = 01.01.1970 (unix timestamp)
+    return ( new Date( 1970, 1, 1, vHourString, vMinuteString, vSecondsString ) );
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * NumberValidator
+ */
+CO.NumberValidator = Class.create(CO.Validator
+                                  ,{
+                             initialize: function($super, input_html)
+                                       {
+                                         this.number_type = Text.AriaZahl.get();
+                                         $super(input_html);
+                                         this.type="NumberValidator";
+                                         this.ClientDecimalPoint = (10/3).toString().charAt(1);
+                                       }
+                            });
+
+CO.NumberValidator.prototype.validate = function()
+{
+    this.removeError();
+
+    var reNo    = new RegExp("[0-9]", "g");
+    var reDP    = new RegExp(gVC.DecimalPoint);
+    var reE     = new RegExp("e");
+    var rePlus  = new RegExp("\\+");
+    var reMinus = new RegExp("\\-");
+    
+    // Dva, 19.09.2012: Wenn ein Punkt als Trennzeichen eingegeben wird, dann soll
+    // dieser durch den gVC.DecimalPoint ersetzt werden.
+    
+    
+    this.input_html.value = this.input_html.value.replace( ".", gVC.DecimalPoint );
+  
+    var vValueBlanks = this.input_html.value; 
+    var vValueWDot = vValueBlanks.replace( gVC.DecimalPoint , "." );
+    var vValueTemp = this.input_html.value.replace(/^\s+|\s+$/g,"");
+    var vValue = vValueTemp;
+  
+    vValueTemp =  vValueTemp.replace(reNo,"")
+                            .replace(reDP,"")
+                            .replace(reE,"")
+                            .replace(rePlus,"")
+                            .replace(reMinus,"");
+
+    if ( vValueTemp.length > 0 )
+    {
+        this.addError(Text.ZahlUngueltig.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    if ( gVC.DecimalPoint != this.ClientDecimalPoint )
+    {
+        vValue = vValue.replace(gVC.DecimalPoint,this.ClientDecimalPoint);
+    }
+
+
+    var vFormat = {
+        mMin: null,
+        mMax: null,
+        mMant: null
+    };
+
+    vFormat = Object.extend(vFormat, this.input_html.co.numFormat);
+
+    if (nvl(vValueBlanks, "") == "")
+    {
+        return true;
+    }
+
+    if ((vValueBlanks.blank()) || this.isNaNOrWhitespace(vValueWDot.strip()))
+    {
+        this.addError(Text.ZahlUngueltig.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    if ((vFormat.mMin != null) && (vFormat.mMin > parseFloat(vValue)))
+    {
+        this.addError(Text.ZahlZuKlein.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    if ((vFormat.mMax != null) && (vFormat.mMax < parseFloat(vValue)))
+    {
+        this.addError(Text.ZahlZuGross.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    var vMantLen = vValue.substring(vValue.indexOf(".") + 1, vValue.length).length;
+
+    if ((vFormat.mMant != null) && (vFormat.mMant != 0) && (vMantLen > vFormat.mMant) && vValue.match(/\./))
+    {
+        this.addError(Text.ZahlZuVieleKomma.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    return true;
+}
+
+CO.NumberValidator.prototype.getAriaDescriptionString=function()
+{
+   var format = this.input_html.co.numFormat;
+   var max    = format["mMax"];
+   var min    = format["mMin"];
+   
+   if(format.mMant != null)
+   {
+      if (max != null)
+      {
+         max += gVC.DecimalPoint+"0".times(format.mMant);   
+      }
+      
+      if (min != null)
+      {
+         min += gVC.DecimalPoint+"0".times(format.mMant);   
+      }
+   }
+   
+   if((min != null)&&(max != null))
+   {
+      return Text.AriaZahlZwischen.replace("ZAHLEN_TYP", this.number_type)
+                                  .replace("ZAHLEN_WERT_MIN", min) 
+                                  .replace("ZAHLEN_WERT_MAX", max)             
+                                  .get();
+   }
+   else if (min != null)
+   {
+      return Text.AriaZahlGroesser.replace("ZAHLEN_TYP", this.number_type)
+                                  .replace("ZAHLEN_WERT", min) 
+                                  .get();
+   }
+   else if (max != null)
+   {
+      return Text.AriaZahlKleiner.replace("ZAHLEN_TYP", this.number_type)
+                                 .replace("ZAHLEN_WERT", max) 
+                                 .get();
+   }
+   
+   
+}
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * StreetValidator
+ */
+CO.StreetValidator = Class.create(CO.Validator
+                                 ,{
+                             initialize: function($super, input_html)
+                                       {
+                                          $super(input_html);
+                                                        this.type="StreetValidator";
+                                       }
+                         } );
+
+CO.StreetValidator.prototype.validate = function()
+{
+    this.removeError();
+
+    var vValue          = this.input_html.value;
+    var vTrimmedText  = this.input_html.value.replace(/[0-9]/g,"").replace(/\//g,"").replace(/\,/g,"").replace(/^\s+|\s+$/g,"");
+   
+    var vValueLowerCase = vTrimmedText.toLowerCase();
+    var vValueUpperCase = vTrimmedText.toUpperCase();
+
+    var vTextLength     = vTrimmedText.length;
+   
+    var char_count    = this.getLength( vValue );
+   
+    var vFormat = {
+        mMinLen:     null,
+        mMaxLen:     null,
+        mCase:       null,
+        mRegEx:      null
+    };
+    
+    vFormat = Object.extend(vFormat, this.input_html.co.stringFormat);
+
+   if (nvl(vValue, "") == "")
+    {
+        return true;
+    }
+
+    if ( ( vTextLength == 1 ) && (vValueUpperCase != vTrimmedText) ) {
+        this.addError(Text.StrassenNameErsterBuchstabe.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }    
+    
+    if ( ( vTextLength > 1 ) && ((vValueLowerCase == vTrimmedText)  || (vValueUpperCase == vTrimmedText) ) ) {
+        this.addError(Text.StrassenNameErsterBuchstabe.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    if ((nvl(vFormat.mMaxLen, 0) != 0) && (char_count > vFormat.mMaxLen))
+    {
+        this.addError(Text.StringZuLang.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    if ((nvl(vFormat.mMinLen, 0) != 0) && (char_count < vFormat.mMinLen))
+    {
+        this.addError(Text.StringZuKurz.replace( "LABEL", this.input_html.getName() ).get());
+        return false;
+    }
+
+    return true;
+}
+
+
+
+CO.StreetValidator.prototype.getAriaDescriptionString=function()
+{
+    if (this.input_html.co.stringFormat["mFormatString"] != null)
+    {
+       return this.input_html.co.stringFormat.mFormatString;  
+    }
+   
+   return null;
+}
+
+
+//------------------------------------------------------------------------------------------------------------
+/**
+ * coMask
+ */
+CO.coMask = function()
+{
+    /*************** private ******************/
+    var allowSubmit = true;
+
+    function enableApplyButton()
+    {
+        $('MaskAction_apply').disabled = false;
+    }
+
+    function disapleApplyButton()
+    {
+        $('MaskAction_apply').disabled = true;
+    }
+
+
+
+    /******************************************/
+    return {
+
+        /*************** public *******************/
+
+        allowApply: function()
+        {
+            allowSubmit = true;
+            enableApplyButton();
+        },
+
+
+        checkSubmit: function()
+        {
+            if (allowSubmit)
+            {
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        },
+
+
+        cancel: function()
+        {
+            /* FIXXME: bessere LÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶sung */
+            allowSubmit = confirm('Wirklich abbrechen?');
+
+        }
+
+
+        /******************************************/
+    }
+}
+();
+
+
+/* Selectlist API */
+CO.Selectlist = Class.create();
+
+CO.Selectlist.collapseOptions = function(pSelectList)
+{
+  pSelectList  = $(pSelectList);
+  var vCBContainerId = $(pSelectList).identify()+"_CBContainer";
+ 
+  if(!$(vCBContainerId)) return;
+  $(vCBContainerId).remove();
+  $(pSelectList).coEnable();
+  $(pSelectList).disabled = $CO(pSelectList).co.disableBeforeExpand;
+
+  var vCBIconExpandId = $(pSelectList).identify()+"_CBIconEpand";
+  var vCBIconCollapseId = $(pSelectList).identify()+"_CBIconCollapse";  
+  if($(vCBIconExpandId)) { $(vCBIconExpandId).coShow(); }
+  if($(vCBIconCollapseId)) { $(vCBIconCollapseId).coHide(); }
+}
+
+/** FIXME **/
+CO.Selectlist.expandOptions = function(pSelectList, pOptions)
+{
+  vOptions = { mType: "checkbox", mSize: null, mSelected: [] }
+  vOptions = Object.extend(vOptions, pOptions);
+ 
+  pSelectList  = $(pSelectList);
+  var vCBContainerId = $(pSelectList).identify()+"_CBContainer";
+  var vCBTabId = $(pSelectList).identify()+"_CBTab";
+
+  if($(vCBTabId)) return;
+  
+  var vCBContainer = new Element("div", {"class": "CBgroup", "id": vCBContainerId});
+  var vCBTab = new Element("table", {"id": vCBTabId});
+  vCBContainer.insert({top: vCBTab});
+
+  var vName  = pSelectList.name;
+  var vSBDisabled = pSelectList.disabled;
+
+  if( vOptions.mSize )
+  {
+    vCBContainer.setStyle( {maxHeight: vOptions.mSize+"em", overflowY: "auto", overflowX: "hidden" } );
+  }
+
+  $CO(pSelectList).co.disableBeforeExpand = $(pSelectList).disabled;
+  $(pSelectList).coDisable();
+
+  var vCBIconExpandId = $(pSelectList).identify()+"_CBIconEpand";
+  var vCBIconCollapseId = $(pSelectList).identify()+"_CBIconCollapse";
+  if($(vCBIconExpandId)) { $(vCBIconExpandId).coHide(); }
+  if($(vCBIconCollapseId)) { $(vCBIconCollapseId).coShow(); }
+  
+  if($(vCBIconCollapseId))
+  {
+    $(vCBIconCollapseId).insert({ after: vCBContainer });
+  }
+  else
+  {
+    $(pSelectList).insert({ after: vCBContainer });
+  }
+
+  $A(pSelectList.children).each(
+    function(pOption)
+    {
+      var optGrpLabel;
+      if( pOption.tagName == "OPTGROUP" )
+      {
+        optGrpLabel = pOption.label;
+        var vTR = new Element("tr", { "class": optGrpLabel } );
+        var vGrpDisabled = pOption.disabled;
+        vCBTab.insert(vTR);
+        vTR.insert({"bottom": new Element("td", {"class": "CBoptionGroup", "colspan": 3}).update(pOption.label)});
+
+        $A(pOption.children).each(  
+          function(pOption)
+          {
+            if( !pOption.value ) return;
+          
+            var vTR = new Element("tr", { "class": optGrpLabel } );
+            vCBTab.insert(vTR);
+            vTR.insert({"bottom": new Element("td", {"class":"CBoptionMarker"})});
+
+            var vCB = new Element("input", {type: vOptions.mType, value: pOption.value, name: vName});
+            
+            if( vSBDisabled )  { vCB.setAttribute("disabled", "disabled") }
+            if( vGrpDisabled ) { vCB.setAttribute("disabled", "disabled") }
+            if( pOption.disabled ) { vCB.setAttribute("disabled", "disabled") }
+            if( vOptions.mSelected.indexOf(pOption.value) >= 0 )
+            {
+              vCB.setAttribute("checked", "checked");
+            }
+
+            var vCBId = vCB.identify();
+            vTR.insert({bottom: new Element("td", {"class":"CBoptionMarker"}).update( vCB )});
+            vTR.insert({bottom: new Element("td", {"class":"CBOptionText"})
+            .update(
+              new Element("label", {"for": vCBId}).update(pOption.innerHTML)
+            )});
+          }
+        );
+      }
+      else
+      {
+        if( !pOption.value ) return;
+        
+        var vTR;
+        vTR = new Element("tr");
+        
+        vCBTab.insert(vTR);
+        var vCB = new Element("input", {type: vOptions.mType, value: pOption.value, name: vName });
+
+        if( vSBDisabled )  { vCB.setAttribute("disabled", "disabled") }
+        if( pOption.disabled ) { vCB.setAttribute("disabled", "disabled") }
+        if( vOptions.mSelected.indexOf(pOption.value) >= 0 )
+        { 
+          vCB.setAttribute("checked", "checked");
+        }
+
+        var vCBId = vCB.identify();
+        vTR.insert({"bottom": new Element("td", {"class":"CBoptionMarker"}).update( vCB )});
+        vTR.insert({"bottom": new Element("td", {"class":"CBOptionText", colspan: 2})
+          .update(
+            new Element("label", {"for": vCBId}).update(pOption.innerHTML)
+        )});
+      }
+    }
+  )
+
+  // Platz für Scrollbars
+  if( vCBTab.getWidth() )
+  {
+    vCBContainer.setStyle( { width: (vCBTab.getWidth()+17)+"px" } );
+  }
+  
+  return(vCBContainer);
+}
+
+
+
+/*************** helper ******************/
+
+CO.getSelectedRadio = function(pName)
+{
+    for (i = 0; i < pName.length; i++)
+        if (pName[i].checked == true)
+            return pName[i].value;
+    return null;
+}
+
+CO.TextArea = Class.create();
+
+CO.TextArea.grow = function(element)
+{
+
+  element.style.height = "";
+  element.style.borderBottom = "";
+
+  if (element.scrollHeight > element.clientHeight)
+  {
+    element.style.height = element.scrollHeight+20+"px";
+    element.removeClassName("taMinimized");
+  }
+
+  element.style.overflowX = "auto";
+}
+
+CO.TextArea.shrink = function(element)
+{
+  element.style.height = "";
+  element.style.overflow = "hidden";
+
+  if(getBrowser() == 'FF 1.5' || (getBrowser() == 'FF 2'))
+  {
+    if(element.defaultValue != element.value)
+      element.coFire("change");
+  }
+
+  if (element.scrollHeight > element.clientHeight)
+    element.addClassName("taMinimized");
+}
+
+CO.TextArea.markExpanded = function()
+{
+  $$(".taExpandable").each(
+    function(element)
+    {
+      if (element.scrollHeight > element.clientHeight)
+      {
+        element.addClassName("taMinimized");
+      }
+    });
+}
+
+CO.TextArea.countWords = function( pTextArea, pOutput )
+{
+    if ( ! isNull($(pOutput)) )
+    {
+      var char_count    = getLengthForValidator( pTextArea.value );
+
+        var fullStr = pTextArea.value + " ";
+
+        var initial_whitespace_rExp = /^[^A-Za-z0-9ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¤ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼]+/gi;
+
+        var left_trimmedStr = fullStr.replace(initial_whitespace_rExp, "");
+
+        var non_alphanumerics_rExp = rExp = /[^-A-Za-z0-9ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¶ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¤ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¼]+/gi;
+
+        var cleanedStr = left_trimmedStr.replace(non_alphanumerics_rExp, " ");
+
+        var splitString = cleanedStr.split(" ");
+
+        var word_count = splitString.length -1;
+
+        if (fullStr.length <2)
+        {
+            word_count = 0;
+        }
+
+        $(pOutput).innerHTML = word_count + ' ' + Text.StringWoerter.get();
+    }
+}
+
+CO.TextArea.countChars = function( pTextArea, pMaxLength, pOutput )
+{
+   var char_count    = getLengthForValidator( pTextArea.value );
+
+    if ( ! isNull($(pOutput)) )
+    {
+        if ( (pMaxLength - char_count) > 0 )
+        {
+            $(pOutput).innerHTML = ( pMaxLength - char_count ) + ' ' + Text.StringCharactersLeft.get();
+        }
+        else if ( (pMaxLength - char_count) < 0 )
+        {
+            $(pOutput).innerHTML = -1 * ( pMaxLength - char_count ) + ' ' + Text.StringTooManyCharacters.get();
+        }
+        else
+        {
+            $(pOutput).innerHTML = Text.StringNoCharactersLeft.get();
+        }
+    }
+}
+
+CO.blurMyChildren=function(parent_node)
+{
+   if(parent_node.blur != undefined)
+      parent_node.blur();
+
+   //if (BrowserDetect.browser != "Explorer")
+   //    return;
+
+   if(typeof parent_node.onblur == "function")
+   {
+     parent_node.onblur();
+   }
+   for (var child_nr = 0; child_nr < parent_node.childNodes.length; child_nr++)
+   {
+      CO.blurMyChildren(parent_node.childNodes[child_nr]);
+   }
+}
+
+/**
+ * ButtonBar API
+ *
+ * @author Zoni
+ */
+CO.ButtonBar = Class.create();
+
+CO.ButtonBar.getBarCells = function(element)
+{
+ var vBarCells =
+ {
+     mTopCells: []
+   , mRightCells: []
+   , mBottomCells: []
+   , mLeftCells: []
+ };
+
+ var vRows = $A($(element).down("table.coBB").rows);
+
+ vRows.each
+ (
+   function(pRow)
+   {
+     $A(pRow.cells).each
+     (
+       function(pCell)
+       {
+         if($(pCell).hasClassName("coBBLEFT"))  vBarCells.mLeftCells.push(pCell);
+         if($(pCell).hasClassName("coBBRIGHT")) vBarCells.mRightCells.push(pCell);
+                  if(pRow.rowIndex == 0) vBarCells.mTopCells.push(pCell);
+         if(pRow.rowIndex == 3) vBarCells.mBottomCells.push(pCell);
+       }
+     );
+   }
+ );
+
+ return(vBarCells);
+}
+
+CO.ButtonBar.setModus = function(element, pModus)
+{
+ Object.values(CO.ButtonBar.getBarCells("idMask")).each
+ (
+ function(pBarCells)
+ {
+   var vVisible = false;
+      pBarCells.each
+   (
+     function(pCell)
+     {
+       pCell.select("li").each
+       (
+         function(pLI)
+         {
+           if(pLI.hasClassName("bbModus"+pModus))
+           {
+             pLI.coShow();
+             vVisible = true;
+           }
+           else
+           {
+             pLI.coHide();
+           }
+         }
+       );
+              pCell.setStyle({display : "block"});
+       pCell.setStyle({display : ""});
+     }
+   )
+      pBarCells.each( function(pCell){if(vVisible) pCell.coShow(); else pCell.coHide(); } );
+ }
+ );
+}
+
+
+/**
+ * Mask API
+ *
+ * @author FRED
+ */
+CO.Mask = Class.create();
+
+
+CO.Mask.submitHandler = function( pForm )
+{
+   CO.Tools.replaceControlCharacters( pForm );
+   
+   return gVC.validateMask( pForm.id );
+}
+
+CO.Mask.noEnterAllowed = function( pEvent )
+{
+   return !( pEvent.keyCode == 13 );
+}
+
+/*
+  CO.Mask.noEnterAllowed is used on every inputfield.
+  To prevent bloated html-code there is a function with a shorter name.
+*/
+function nE(pEvent)
+{
+   return CO.Mask.noEnterAllowed(pEvent);
+}

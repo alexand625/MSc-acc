@@ -1,0 +1,447 @@
+// Callbackobjekt für AjaxRequests
+
+if(typeof(CO) == "undefined")
+  var CO = Class.create();
+
+CO.Callback = Class.create();
+
+CO.Callback.mDebug = false;
+
+
+//---
+CO.Callback.request = function(pUrl, pOptions)
+{
+  
+  doEnableCaller = function(cbCaller)
+  {
+	if( cbCaller && (cbCaller.tagName == "A" || cbCaller.tagName == "BUTTON") )
+	{
+		cbCaller.coEnable();
+	}
+  }
+  
+  var vCustomHandlers = 
+  {
+    pUrl : pUrl
+  , parameters : {}
+  , onCustomCreate :   function(pOptions){}
+  , onCustomComplete : function(pOptions){}
+  , onCustomSuccess :  function(pTransport, pOptions){}
+  , onCustomFailure :  function(pOptions, pExc){ $E(pExc); }
+  , cbCaller : document.body
+  };
+  
+  pOptions = Object.extend(vCustomHandlers, pOptions);
+  pOptions.parameters = Object.extend(pOptions.parameters, pOptions.parametersUrl);
+  
+  var cbCaller = $(pOptions.cbCaller);
+  
+
+
+  var vEffLoading = new CO.Effect.SiteLoading();
+
+  var vCoOptions =
+  {
+    method: "GET"
+  , requestHeaders : {"Accept": "CALLBACK"}
+  , encoding : 'UTF-8'
+  , onSuccess: function(pTransport)
+    {
+		CO.Callback.handle.call(cbCaller, pTransport, pOptions);
+		pOptions.onCustomSuccess.call(cbCaller, pTransport, pOptions);
+		doEnableCaller(cbCaller);
+    }
+  , onFailure: function(pTransport)
+    {      
+      vEffLoading.end();
+      if(pTransport.status == 503) {
+		var frame = top ? top : this;
+		frame.window.location.reload();
+      } else {
+      	if(CO.msg)
+	    {	
+        	CO.msg.addError("Callback-Vorgang fehlgeschlagen.");
+      	}
+      }
+	  
+      pOptions.onCustomFailure.call(cbCaller, pOptions, new Error("Serverseitiger Fehler bei Callback"));
+      doEnableCaller(cbCaller);
+    }
+  , onException: function(a,b)
+    { 
+      vEffLoading.end();
+	  
+      pOptions.onCustomFailure.call(cbCaller, pOptions, new Error("Fataler Fehler in handle-Callback: "+b));
+	  
+	  doEnableCaller(cbCaller);
+  }
+  , onCreate: function()
+    {
+       vEffLoading.start();
+    }
+  , onComplete:  function()
+    {      
+      vEffLoading.end();
+	  
+      pOptions.onCustomComplete.call(cbCaller, pOptions);
+	  
+	  doEnableCaller(cbCaller);	  
+    }
+  };  
+     
+  pOptions = Object.extend(vCoOptions, pOptions);
+  
+  pOptions.onCustomCreate.call(cbCaller, pOptions);
+  
+  if ( ! isNull(pOptions.onMaskInvalid) )
+  {
+    if ( ! pOptions.onMaskInvalid.call(cbCaller, pOptions) ) { return; };
+  }
+  
+  if(pOptions.cancle){ return; }
+  
+  
+  if( cbCaller && (cbCaller.tagName == "A" || cbCaller.tagName == "BUTTON") )
+  {
+    cbCaller.coDisable();
+  }  
+  
+
+  Object.keys(pOptions.parameters).each(
+  function(pKey)
+  {
+    if(Object.isArray(pOptions.parameters[pKey]))
+    {
+
+      pOptions.parameters[pKey].each(
+        function(pEntry, pIndex)
+        {
+			pOptions.parameters[pKey][pIndex] = CO.Tools.replaceCC(pOptions.parameters[pKey][pIndex]);
+        });
+    }
+    else
+    {
+		pOptions.parameters[pKey] = CO.Tools.replaceCC(pOptions.parameters[pKey]);
+    }
+  });   
+  
+  CO.info("Callback gestartet: ", new CO.Url(pUrl).setParams(pOptions.parameters).get());
+  
+  /*if(getBrowser() == "FF 3")*/
+    pUrl = new CO.Url(pUrl).setNoCache().get();
+  
+  new Ajax.Request(pUrl, pOptions);
+}
+
+
+CO.Callback._getMaskRowFromID = function( pID )
+{
+  if(!pID)
+    return null;
+
+	var vID = pID;
+
+	do
+	{
+		vID = vID.up("tr");
+		
+	}
+	while ( (! vID.nodeName.startsWith("body") )  
+			&& !$(vID.parentNode.parentNode.parentNode).hasClassName("MaskSCT") 
+			&& !$(vID.parentNode.parentNode.parentNode).hasClassName("coBBContent")
+			&& !$(vID.parentNode.parentNode.parentNode).hasClassName("MaskData")
+			)
+
+	return vID;
+}
+
+//---
+CO.Callback.handle = function(cbTransport, cbOptions)
+{
+//console.time("callback");
+
+CO.logGroup("Callback wird abgearbeitet");
+CO.info(cbOptions.pUrl);
+CO.dir(cbOptions.parameters);
+
+var cbXML = cbTransport.responseXML;
+
+//---------------------------------------------------------------------------
+// XML-InstructionSet erhalten
+if(cbXML)
+{
+  var cbInstructions = cbXML.getElementsByTagName("instruction");
+  
+  CO.info("XML-Instructionset erkannt: " + cbInstructions.length + " Instructions");  
+  
+  var cbEvalCount   = 0;
+  var cbInsertCount = 0;
+  
+  var cbCaller = cbOptions.cbCaller;
+  var cbInstrCounter = 0;
+  
+  for(cbInstrCounter = 0; cbInstrCounter < cbInstructions.length; cbInstrCounter++)
+  {
+    var cbValue  = cbInstructions.item(cbInstrCounter).firstChild.nodeValue;
+    var cbAction = cbInstructions.item(cbInstrCounter).getAttribute("action");
+
+    var cbId = null;
+
+    var cbJSId = cbInstructions.item(cbInstrCounter).getAttribute("jsid");
+    if(cbJSId) { cbId = $(cbJSId); }
+    
+    if(!cbId)
+    {
+      var cbJSNode = cbInstructions.item(cbInstrCounter).getAttribute("jsnode");
+      if(cbJSNode) { cbId = $(eval(cbJSNode)); if(cbId === false) { continue; } }
+    }
+    
+    var cbType = cbInstructions.item(cbInstrCounter).getAttribute("type");
+    
+	switch( cbType )
+      {  
+        case "ROWS": 
+			{
+			  var cbTempDiv = new Element("div").update(cbValue);
+
+			  cbTempDiv.select(".cNoEntry").each(function(pItem){pItem.remove();});
+			  cbId.select(".cNoEntry").each(function(pItem){pItem.remove();});
+			  
+			  cbValue = cbTempDiv.select(".cotable tbody")[0].innerHTML;
+			  
+			  if(cbAction == "insertTopOfElement" || cbAction == "insertBottomOfElement")
+				cbId = cbId.select("tbody")[0];
+			}
+			break;
+        case "MASKROWS": 
+			{
+				if (! cbAction.startsWith("remove") )
+				{
+					var cbTempDiv = new Element("div").update(cbValue);
+					cbValue = cbTempDiv.select("tbody")[0].innerHTML;
+				}
+				
+				switch( cbAction )
+				{
+					case "insertTopOfElement":
+					case "insertBottomOfElement":
+					{
+						//
+						// Problem mit coCss.new(false) -> keine Table definiert!
+						// Wird zurückgestellt!
+						
+						cbId = cbId.up(".MaskSCT").select("table[~class='coBB'] tbody")[0];
+					}
+					break;
+					
+					case "removeAfterElement":
+					{
+						cbId = CO.Callback._getMaskRowFromID( cbId ).nextSiblings()[0];
+					}
+					break;
+					
+					case "removeBeforeElement":
+					{
+						cbId = CO.Callback._getMaskRowFromID( cbId ).previousSiblings()[0];
+					}
+					break;
+					
+					default:
+					{
+						cbId = CO.Callback._getMaskRowFromID( cbId );
+					}
+					break;
+				}
+			}
+			break;		
+        default: break;
+    }
+
+
+    try
+    {
+    
+      if(cbAction == "EVALJS")
+      {
+        cbEvalCount++;
+        
+        if(CO.Callback.mDebug)
+        {
+          CO.logGroup("Instruktion EVALJS");
+          CO.info(cbValue);
+        }
+      }
+      else if(cbAction == "appendCSS")
+      {
+        if(CO.Callback.mDebug)
+        {
+          CO.logGroup("Instruktion appendCSS");
+          CO.info(cbValue);
+        }        
+      }
+      else if(cbAction == "JSFILE")
+      {
+        if(!CO.Page.existsScript(cbValue))
+        { 
+          if( cbValue.indexOf('jquery') == -1 )
+          {
+            console.error("JS-File benötigt: " + cbValue);
+            alert("JS-File benötigt: " + cbValue);           
+            break; 
+          }
+        }
+        
+        if(CO.Callback.mDebug)
+        {        
+          CO.logGroup("Instruktion JSFILE");
+          CO.info("JS-File: " + cbValue);
+        }
+      }
+      else
+      {
+        if(typeof(cbOptions.destination) != "undefined")
+        {
+          cbAction = "updateElement";
+          cbId     = cbOptions.destination;
+        }
+        
+        cbInsertCount++;
+        
+        if(CO.Callback.mDebug)
+        {
+          CO.logGroup("Instruktion "+cbAction, " ["+cbId+"]");
+        }
+      }
+
+      
+      var vGVCId = null;
+      
+      if (!typeof(gVC) == "undefined") {
+          var vFormElements = $A((!isNull($(cbId)))?$(cbId).select("select","input","textarea"):null);
+          vFormElements.push($(cbId));
+          vFormElements.each( function(pE){ gVC.removeAllErrorsOfElement(pE);} )
+      }
+      
+      switch(cbAction)
+      {  
+        case "appendCSS": eval( cbValue.replace(/\n/g,' ') ); break;
+        case "EVALJS": eval(cbValue); break;  
+        case "JSFILE": break;        
+        case "updateElement":  if(self.gVC){ vGVCId = gVC.getAssociatedValidatorID($(cbId)); }
+                               if ($(cbId)) $(cbId).innerHTML = cbValue; break;
+                               
+        case "replaceElement": if(self.gVC){ vGVCId = gVC.getAssociatedValidatorID($(cbId)); }
+                               if ($(cbId)) $(cbId).replace(cbValue); break;
+                               
+        case "removeElement":
+		case "removeAfterElement":
+		case "removeBeforeElement":
+							   if(self.gVC){ vGVCId = gVC.getAssociatedValidatorID($(cbId)); }
+                               if ($(cbId)) $(cbId).remove(); break;
+                               
+        case "insertBeforeElement":   if ($(cbId)) $(cbId).insert({before: cbValue}); break;
+        case "insertAfterElement":    if ($(cbId)) $(cbId).insert({after: cbValue}); break;
+        case "insertTopOfElement":    if ($(cbId)) $(cbId).insert({top: cbValue}); break;
+        case "insertBottomOfElement": if ($(cbId)) $(cbId).insert({bottom: cbValue}); break;
+        default: console.error("Unbekannte Instruktion"); break; 
+      }
+      
+      if(self.gVC && vGVCId){ gVC.removeUnusedValidators(vGVCId); }
+    }
+    catch(exc)
+    {
+      exc.msg = "Fehler in Callback-Instruction";
+      exc.code = cbValue
+      exc.coCallbackAction = cbAction;
+      exc.coCallbackID = cbId;
+       
+      $E(exc);
+    }
+
+
+    if(CO.Callback.mDebug)
+    {
+      CO.logGroupEnd();
+    }
+    
+  }
+  
+  CO.info(cbInsertCount + " Insertions");
+  CO.info(cbEvalCount   + " JavaSrcipts");  
+  
+  //console.timeEnd("callback");
+}
+
+CO.logGroupEnd();
+}
+
+CO.Callback.setSiteLoading = function(pOptions)
+{
+  var vCOOptions = 
+  {
+    onLoading: function(){}
+  }
+  
+  pOptions = Object.extend(vCOOptions, pOptions);
+  
+  if(typeof(this.mLoading) == "undefined") this.mLoading = [];
+  var vEffLoading = new CO.Effect.SiteLoading();
+  vEffLoading.start();
+  this.mLoading.push(vEffLoading);
+  pOptions.onLoading.call();
+}
+
+CO.Callback.setSiteLoaded = function(pOptions)
+{
+  var vCOOptions = 
+  {
+    onLoaded: function(){}
+  }
+  
+  pOptions = Object.extend(vCOOptions, pOptions);
+  
+  if(typeof(this.mLoading) == "undefined") return;
+  
+  try
+  {
+    var vEffLoading = this.mLoading.pop();
+    vEffLoading.end();
+    pOptions.onLoaded.call();   
+  }
+  catch(exc){}
+}
+
+//historisch
+
+pCallbackObj = Class.create();
+
+pCallbackObj.doCallback = function(pUrl, pParams, pMethode, pSynchron, pStartJS, pEndJS)
+{
+ 
+  pOptions = {};
+  if(typeof(pParams)   != "undefined") pOptions.parameters = pParams;
+  if(typeof(pMethode)  != "undefined") pOptions.method = pMethode;
+  if(typeof(pSynchron) != "undefined") pOptions.asynchronous = !pSynchron;
+
+
+  if(typeof(pStartJS)  != "undefined")  pOptions.onCustomCreate = function(pOptions){ try{ eval(pStartJS); } catch(exc){ CO.dir(exc); }};
+  if(typeof(pEndJS)    != "undefined")  
+  {
+    pOptions.onCustomComplete = function(pOptions){ try{ eval(pEndJS); } catch(exc){ CO.dir(exc); }};
+    pOptions.onCustomFailure  = pOptions.onCustomComplete;
+  }
+
+  CO.Callback.request(pUrl, pOptions);
+}
+
+pCallbackObj.initAjax = function(pStartJS)
+{
+  CO.Callback.setSiteLoading({onLoading: function(){eval(pStartJS);}});
+}
+
+pCallbackObj.finishAjax = function(pEndJS)
+{
+  CO.Callback.setSiteLoaded({onLoaded: function(){eval(pEndJS);}});
+}
+
+

@@ -1,0 +1,10 @@
+/*   CAMPUSonline  -  Javascript KB.:wosinddieframes
+-------------------------------------------------------------------------------------
+         $Revision:   $
+-------------------------------------------------------------------------------------*/
+
+if (top && !top.menue) 
+{
+document.write('<table width="100%"><TR align="RIGHT"><TD align="RIGHT"><a href="https://' + GLOBALhomeUrl + '" target="Hauptfenster">' + GLOBALhomeIndicator + '</A></TD></TR></TABLE>');
+
+};
